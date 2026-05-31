@@ -380,7 +380,7 @@ function HomeView({ products }: { products: Product[] }) {
   }
 
   const handleAddToCart = (product: Product) => {
-    addItem({ productId: product.id, name: product.name, price: product.price, quantity: 1 })
+    addItem({ productId: product.id, name: product.name, price: product.price, quantity: 1, image: product.image || undefined })
     toast({ title: 'Added to cart', description: `${product.name} has been added to your cart.` })
   }
 
@@ -388,7 +388,10 @@ function HomeView({ products }: { products: Product[] }) {
     <div>
       {/* Hero Section */}
       <section className="relative overflow-hidden py-20 sm:py-28 lg:py-36">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-amber-500/5 to-orange-500/10" />
+        <div className="absolute inset-0">
+          <img src="/images/hero/banner.png" alt="Alifaain Beauty" className="w-full h-full object-cover opacity-20" />
+          <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-amber-500/5 to-orange-500/10" />
+        </div>
         <div className="absolute top-10 right-10 w-72 h-72 bg-primary/10 rounded-full blur-3xl animate-float" />
         <div className="absolute bottom-10 left-10 w-96 h-96 bg-amber-400/10 rounded-full blur-3xl animate-float" style={{ animationDelay: '1s' }} />
         <div className="absolute top-1/2 left-1/2 w-40 h-40 bg-orange-300/10 rounded-full blur-2xl animate-float" style={{ animationDelay: '2s' }} />
@@ -454,7 +457,10 @@ function HomeView({ products }: { products: Product[] }) {
                   }`}
                   disabled={cat.comingSoon}
                 >
-                  <div className={`bg-gradient-to-br ${getGradientForCategory(cat.slug)} p-6 sm:p-8 text-white relative overflow-hidden`}>
+                  <div className={`relative bg-gradient-to-br ${getGradientForCategory(cat.slug)} p-6 sm:p-8 text-white overflow-hidden`}>
+                    {cat.slug !== 'clothing' && cat.slug !== 'fragrances' && (
+                      <img src={`/images/categories/${cat.slug}.png`} alt={cat.name} className="absolute inset-0 w-full h-full object-cover opacity-30 mix-blend-overlay" />
+                    )}
                     <div className="absolute top-2 right-2 text-3xl opacity-30">{categoryIcons[cat.slug]}</div>
                     <span className="text-2xl mb-2 block">{categoryIcons[cat.slug]}</span>
                     <h3 className="font-serif font-bold text-lg mb-1">{cat.name}</h3>
@@ -564,7 +570,7 @@ function ProductCard({ product }: { product: Product }) {
 
   const handleAdd = (e: React.MouseEvent) => {
     e.stopPropagation()
-    addItem({ productId: product.id, name: product.name, price: product.price, quantity: 1 })
+    addItem({ productId: product.id, name: product.name, price: product.price, quantity: 1, image: product.image || undefined })
     toast({ title: 'Added to cart', description: `${product.name} has been added.` })
   }
 
@@ -577,8 +583,13 @@ function ProductCard({ product }: { product: Product }) {
       <Card className="overflow-hidden h-full hover:shadow-xl transition-shadow duration-300 cursor-pointer group"
         onClick={() => setView({ view: 'product-detail', params: { id: product.id } })}
       >
-        <div className={`relative h-44 bg-gradient-to-br ${getGradientForCategory(product.category.slug)} flex items-center justify-center overflow-hidden`}>
-          <span className="text-4xl font-bold text-white/30 font-serif">{getProductInitials(product.name)}</span>
+        <div className={`relative h-44 ${product.image ? '' : 'bg-gradient-to-br ' + getGradientForCategory(product.category.slug)} flex items-center justify-center overflow-hidden`}>
+          {product.image ? (
+            <img src={product.image} alt={product.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+          ) : (
+            <span className="text-4xl font-bold text-white/30 font-serif">{getProductInitials(product.name)}</span>
+          )}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" />
           <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
             <Button size="icon" variant="secondary" className="size-8 rounded-full" onClick={handleAdd}>
               <ShoppingCart className="size-3.5" />
@@ -754,7 +765,7 @@ function ProductGridCard({ product }: { product: Product }) {
 
   const handleAdd = (e: React.MouseEvent) => {
     e.stopPropagation()
-    addItem({ productId: product.id, name: product.name, price: product.price, quantity: 1 })
+    addItem({ productId: product.id, name: product.name, price: product.price, quantity: 1, image: product.image || undefined })
     toast({ title: 'Added to cart', description: `${product.name} has been added.` })
   }
 
@@ -763,8 +774,13 @@ function ProductGridCard({ product }: { product: Product }) {
       <Card className="overflow-hidden h-full hover:shadow-xl transition-shadow duration-300 cursor-pointer group"
         onClick={() => setView({ view: 'product-detail', params: { id: product.id } })}
       >
-        <div className={`relative h-48 bg-gradient-to-br ${getGradientForCategory(product.category.slug)} flex items-center justify-center overflow-hidden`}>
-          <span className="text-5xl font-bold text-white/20 font-serif">{getProductInitials(product.name)}</span>
+        <div className={`relative h-48 ${product.image ? '' : 'bg-gradient-to-br ' + getGradientForCategory(product.category.slug)} flex items-center justify-center overflow-hidden`}>
+          {product.image ? (
+            <img src={product.image} alt={product.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+          ) : (
+            <span className="text-5xl font-bold text-white/20 font-serif">{getProductInitials(product.name)}</span>
+          )}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" />
           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
           <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
             <Button size="sm" onClick={handleAdd} className="h-8">
@@ -824,7 +840,7 @@ function ProductDetailView({ products }: { products: Product[] }) {
   }
 
   const handleAddToCart = () => {
-    addItem({ productId: product.id, name: product.name, price: product.price, quantity })
+    addItem({ productId: product.id, name: product.name, price: product.price, quantity, image: product.image || undefined })
     toast({ title: 'Added to cart', description: `${quantity}x ${product.name} added to your cart.` })
   }
 
@@ -838,8 +854,13 @@ function ProductDetailView({ products }: { products: Product[] }) {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-16">
           {/* Image */}
-          <div className={`relative rounded-2xl overflow-hidden bg-gradient-to-br ${getGradientForCategory(product.category.slug)} aspect-square flex items-center justify-center`}>
-            <span className="text-8xl font-bold text-white/15 font-serif">{getProductInitials(product.name)}</span>
+          <div className={`relative rounded-2xl overflow-hidden ${product.image ? '' : 'bg-gradient-to-br ' + getGradientForCategory(product.category.slug)} aspect-square flex items-center justify-center`}>
+            {product.image ? (
+              <img src={product.image} alt={product.name} className="w-full h-full object-cover" />
+            ) : (
+              <span className="text-8xl font-bold text-white/15 font-serif">{getProductInitials(product.name)}</span>
+            )}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent" />
             <div className="absolute top-4 left-4 flex gap-2">
               <Badge className="bg-white/20 text-white border-0">{product.category.name}</Badge>
               {product.featured && <Badge className="bg-white/20 text-white border-0"><Star className="size-3 mr-1" />Featured</Badge>}
@@ -945,8 +966,14 @@ function CartView() {
               <Card key={item.productId} className="overflow-hidden">
                 <CardContent className="p-4">
                   <div className="flex gap-4">
-                    <div className="size-20 rounded-lg bg-gradient-to-br from-primary/20 to-amber-500/20 flex items-center justify-center shrink-0">
-                      <span className="text-lg font-bold text-primary/40 font-serif">{getProductInitials(item.name)}</span>
+                    <div className="size-20 rounded-lg overflow-hidden shrink-0">
+                      {item.image ? (
+                        <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full bg-gradient-to-br from-primary/20 to-amber-500/20 flex items-center justify-center">
+                          <span className="text-lg font-bold text-primary/40 font-serif">{getProductInitials(item.name)}</span>
+                        </div>
+                      )}
                     </div>
                     <div className="flex-1 min-w-0">
                       <h3 className="font-semibold mb-1 truncate">{item.name}</h3>
@@ -1403,6 +1430,7 @@ function AdminProducts({ products }: { products: Product[] }) {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead>Image</TableHead>
                     <TableHead>Name</TableHead>
                     <TableHead>Category</TableHead>
                     <TableHead>Price</TableHead>
@@ -1413,6 +1441,17 @@ function AdminProducts({ products }: { products: Product[] }) {
                 <TableBody>
                   {filtered.map(p => (
                     <TableRow key={p.id}>
+                      <TableCell>
+                        <div className="size-10 rounded-md overflow-hidden bg-gradient-to-br from-primary/10 to-amber-500/10">
+                          {p.image ? (
+                            <img src={p.image} alt={p.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <span className="text-[8px] font-bold text-primary/40">{getProductInitials(p.name)}</span>
+                            </div>
+                          )}
+                        </div>
+                      </TableCell>
                       <TableCell className="font-medium max-w-[200px] truncate">{p.name}</TableCell>
                       <TableCell><Badge variant="secondary" className="text-xs">{p.category.name}</Badge></TableCell>
                       <TableCell>{formatPrice(p.price, selectedCountry)}</TableCell>
