@@ -1061,57 +1061,79 @@ function ProductsView({ products }: { products: Product[] }) {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
       <motion.div {...fadeIn}>
-        {/* Page Header */}
+        {/* Page Header with Category Navigation */}
         <div className="mb-8">
-          <h1 className="font-serif text-3xl sm:text-4xl font-bold mb-2">Shop All</h1>
-          <p className="text-muted-foreground">Browse our entire collection across all categories</p>
-        </div>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+            <div>
+              <h1 className="font-serif text-3xl sm:text-4xl font-bold mb-1">Shop All</h1>
+              <p className="text-muted-foreground text-sm">Browse our entire collection across all categories</p>
+            </div>
+            <div className="text-sm text-muted-foreground">
+              {filteredProducts.length} product{filteredProducts.length !== 1 ? 's' : ''} found
+            </div>
+          </div>
 
-        {/* Category Cards Row */}
-        <div className="mb-8">
-          <motion.div variants={staggerContainer} initial="initial" animate="animate" className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
-            {/* All Products Card */}
-            <motion.div variants={staggerItem}>
-              <button
+          {/* Horizontal Category Navigation Bar */}
+          <div className="relative -mx-4 sm:-mx-6 px-4 sm:px-6 py-4 bg-card/80 backdrop-blur-sm border-y border-border/50">
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide">
+              {/* All Products Pill */}
+              <motion.button
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
                 onClick={() => { setSelectedCategory(null); setSelectedCats([]) }}
-                className={`w-full text-left rounded-xl overflow-hidden transition-all duration-300 hover:scale-[1.03] hover:shadow-lg ${
-                  activeCategories.length === 0 ? 'ring-2 ring-primary ring-offset-2 ring-offset-background' : ''
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-medium whitespace-nowrap transition-all duration-300 shrink-0 ${
+                  activeCategories.length === 0
+                    ? 'bg-primary text-primary-foreground shadow-md shadow-primary/25'
+                    : 'bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground'
                 }`}
               >
-                <div className="relative bg-gradient-to-br from-amber-500 via-orange-500 to-red-500 p-4 text-white">
-                  <span className="text-2xl mb-1 block">🛍️</span>
-                  <h3 className="font-serif font-bold text-sm mb-0.5">All Products</h3>
-                  <span className="text-[11px] text-white/70">{products.filter(p => p.status === 'active').length} products</span>
-                </div>
-              </button>
-            </motion.div>
-            {allCategories.map(cat => {
-              const count = productCountByCategory.get(cat.id) || 0
-              const isComingSoon = cat.status === 'coming_soon'
-              const isActive = activeCategories.includes(cat.slug)
-              return (
-                <motion.div key={cat.id} variants={staggerItem}>
-                  <button
+                <ShoppingBag className="size-4" />
+                <span>All Products</span>
+                <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+                  activeCategories.length === 0 ? 'bg-primary-foreground/20 text-primary-foreground' : 'bg-muted text-muted-foreground'
+                }`}>
+                  {products.filter(p => p.status === 'active').length}
+                </span>
+              </motion.button>
+
+              <div className="w-px h-8 bg-border/50 shrink-0" />
+
+              {/* Category Pills */}
+              {allCategories.map(cat => {
+                const count = productCountByCategory.get(cat.id) || 0
+                const isComingSoon = cat.status === 'coming_soon'
+                const isActive = activeCategories.includes(cat.slug)
+                return (
+                  <motion.button
+                    key={cat.id}
+                    whileHover={!isComingSoon ? { scale: 1.03 } : {}}
+                    whileTap={!isComingSoon ? { scale: 0.97 } : {}}
                     onClick={() => { if (!isComingSoon) { setSelectedCategory(cat.slug); setSelectedCats([cat.slug]) } }}
-                    className={`w-full text-left rounded-xl overflow-hidden transition-all duration-300 ${
-                      isComingSoon ? 'opacity-50 cursor-not-allowed' : 'hover:scale-[1.03] hover:shadow-lg cursor-pointer'
-                    } ${isActive ? 'ring-2 ring-primary ring-offset-2 ring-offset-background' : ''}`}
                     disabled={isComingSoon}
+                    className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-medium whitespace-nowrap transition-all duration-300 shrink-0 ${
+                      isComingSoon
+                        ? 'opacity-40 cursor-not-allowed bg-secondary/50 text-muted-foreground'
+                        : isActive
+                          ? 'bg-primary text-primary-foreground shadow-md shadow-primary/25'
+                          : 'bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground cursor-pointer'
+                    }`}
                   >
-                    <div className={`relative bg-gradient-to-br ${getGradientForCategory(cat.slug)} p-4 text-white overflow-hidden`}>
-                      <span className="text-2xl mb-1 block">{categoryIcons[cat.slug] || '📦'}</span>
-                      <h3 className="font-serif font-bold text-sm mb-0.5">{cat.name}</h3>
-                      {isComingSoon ? (
-                        <Badge variant="secondary" className="bg-white/20 text-white border-0 text-[9px]">Coming Soon</Badge>
-                      ) : (
-                        <span className="text-[11px] text-white/70">{count} products</span>
-                      )}
-                    </div>
-                  </button>
-                </motion.div>
-              )
-            })}
-          </motion.div>
+                    <span className="text-base">{categoryIcons[cat.slug] || '📦'}</span>
+                    <span>{cat.name}</span>
+                    {isComingSoon ? (
+                      <Badge variant="secondary" className="text-[9px] px-1.5 py-0 bg-background/50 text-muted-foreground">Soon</Badge>
+                    ) : (
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+                        isActive ? 'bg-primary-foreground/20 text-primary-foreground' : 'bg-muted text-muted-foreground'
+                      }`}>
+                        {count}
+                      </span>
+                    )}
+                  </motion.button>
+                )
+              })}
+            </div>
+          </div>
         </div>
 
         {/* Top Bar */}
@@ -1190,7 +1212,6 @@ function ProductsView({ products }: { products: Product[] }) {
 
           {/* Product Grid */}
           <div className="flex-1">
-            <div className="text-sm text-muted-foreground mb-4">{filteredProducts.length} products found</div>
             {filteredProducts.length === 0 ? (
               <div className="text-center py-16">
                 <Package className="size-12 text-muted-foreground mx-auto mb-4" />

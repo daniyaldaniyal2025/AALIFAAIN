@@ -32,3 +32,24 @@ Stage Summary:
 - Primary image + additional images with set-as-primary and remove actions
 - Customer product detail view shows image gallery with navigation and thumbnails
 - All changes reflect on customer side automatically (same API data source)
+---
+Task ID: 1
+Agent: main
+Task: Show all categories in shop header
+
+Work Log:
+- Replaced the category cards grid in ProductsView with a horizontal pill-style navigation bar
+- Added "All Products" pill with ShoppingBag icon and product count
+- Added category pills with emoji icons, names, and product counts
+- Active category gets highlighted with primary color and shadow effect
+- Coming soon categories are dimmed and non-clickable
+- Added separator line between "All Products" and category pills
+- Moved "X products found" counter to header area (next to title)
+- Added scrollbar-hide CSS utility for clean horizontal scrolling
+- Removed duplicate "products found" text from the product grid area
+
+Stage Summary:
+- Shop page now has a sleek horizontal category navigation bar in the header
+- All categories (including coming soon ones) are shown as scrollable pills
+- Active category is highlighted with primary color
+- Clean, modern e-commerce style navigation
