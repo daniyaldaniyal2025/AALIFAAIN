@@ -39,19 +39,24 @@ model Product {
 }
 
 model Order {
-  id            String      @id @default(cuid())
-  customerName  String
-  customerEmail String
-  customerPhone String?
-  total         Float
-  status        String      @default("pending")
-  currency      String      @default("SAR")
-  country       String      @default("SA")
-  userId        String?
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
-  items         OrderItem[]
-  user          User?       @relation(fields: [userId], references: [id])
+  id             String      @id @default(cuid())
+  customerName   String
+  customerEmail  String
+  customerPhone  String?
+  total          Float
+  status         String      @default("pending")
+  currency       String      @default("SAR")
+  country        String      @default("SA")
+  paymentMethod  String      @default("cod")
+  paymentStatus  String      @default("pending")
+  transactionId  String?
+  cardLast4      String?
+  paidAt         DateTime?
+  userId         String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  items          OrderItem[]
+  user           User?       @relation(fields: [userId], references: [id])
 }
 
 model OrderItem {

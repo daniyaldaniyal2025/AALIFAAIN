@@ -137,4 +137,54 @@ Stage Summary:
 - Socket connection uses Caddy gateway: io('/?XTransformPort=3003')
 - Architecture: Admin frontend emits → Socket server broadcasts → All clients receive → Auto-refresh via API
 
+---
+Task ID: 5
+Agent: main
+Task: Add payment gateway with full functionality and admin dashboard status
+
+Work Log:
+- Updated Prisma schema: Order model now includes paymentMethod, paymentStatus, transactionId, cardLast4, paidAt fields
+- Ran db:push to sync schema changes
+- Created 3 payment API routes:
+  - /api/payment/create - Processes payment (supports card, mada, applepay, cod)
+  - /api/payment/verify - Verifies payment by transaction ID
+  - /api/payment/refund - Refunds a paid order
+- Updated /api/orders to accept paymentMethod on POST and support PUT for order/payment status updates
+- Updated /api/admin/stats to include paymentStats, paymentMethodStats, paidRevenue, pendingPayments
+- Updated Order interface with payment fields
+- Updated AdminStats interface with payment stats fields
+- Added new Lucide icons: Wallet, Banknote, Smartphone, Receipt, CircleDollarSign, RotateCcw
+- Completely rewrote CheckoutView with:
+  - Multi-step checkout: Information → Payment → Processing → Success/Failed
+  - 4 payment methods: Credit Card, Mada, Apple Pay, Cash on Delivery
+  - Card form with auto-formatting (card number, expiry, CVC)
+  - Processing animation with spinner
+  - Success screen with transaction ID and order ID
+  - Failed screen with retry option
+  - COD fee (SAR 10) support
+  - SSL encryption notice
+- Updated AdminDashboard with:
+  - New "Paid Revenue" stat card
+  - Payment Status Overview section (pending/paid/failed/refunded counts & totals)
+  - Payment Methods breakdown section (card/mada/applepay/cod counts & totals)
+  - Recent orders table now shows payment status badge
+  - Additional order statuses (confirmed, cancelled)
+- Completely rewrote AdminOrders with:
+  - Expandable order cards (click to expand details)
+  - Payment filter (All/Pending/Paid/Failed/Refunded)
+  - Order status filter
+  - Detailed payment info panel (method, transaction ID, card last4, paid at)
+  - Order items list in expanded view
+  - Order status quick-change buttons
+  - Mark as Paid button for pending payments
+  - Refund button for paid orders
+  - Refresh button
+
+Stage Summary:
+- Full payment gateway integrated with 4 payment methods
+- Admin dashboard shows payment stats overview and method breakdown
+- Admin can manage order status, mark payments, and process refunds
+- All changes pass lint checks
+- Both dev server and realtime service running
+
 

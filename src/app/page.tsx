@@ -30,7 +30,8 @@ import {
   BarChart3, Boxes, ClipboardList, RefreshCw, Globe, ChevronRight, ChevronLeft, LogIn,
   LogOut, UserCircle, UserPlus, Lock, AlertCircle, Check,
   EyeOff, Save, Calendar, Pencil, ToggleLeft, ToggleRight, ImagePlus, Upload, ImageIcon,
-  Info, MessageSquare, Send, Award, Target, Leaf, Handshake, Building2
+  Info, MessageSquare, Send, Award, Target, Leaf, Handshake, Building2,
+  Wallet, Banknote, Smartphone, Receipt, CircleDollarSign, RotateCcw
 } from 'lucide-react'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
@@ -83,6 +84,11 @@ interface Order {
   status: string
   currency: string
   country: string
+  paymentMethod: string
+  paymentStatus: string
+  transactionId: string | null
+  cardLast4: string | null
+  paidAt: string | null
   createdAt: string
   items: OrderItem[]
 }
@@ -95,6 +101,10 @@ interface AdminStats {
   categories: { id: string; name: string; slug: string; _count: { products: number } }[]
   recentOrders: Order[]
   monthlyRevenue: { month: string; revenue: number }[]
+  paymentStats: { status: string; count: number; total: number }[]
+  paymentMethodStats: { method: string; count: number; total: number }[]
+  paidRevenue: number
+  pendingPayments: number
 }
 
 // ─── Animation Variants ─────────────────────────────────────────────────────
@@ -2147,28 +2157,64 @@ function CheckoutView() {
   const { items, totalPrice, clearCart } = useCartStore()
   const { setView, selectedCountry } = useAppStore()
   const { toast } = useToast()
+  const [step, setStep] = useState<'info' | 'payment' | 'processing' | 'success' | 'failed'>('info')
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [orderPlaced, setOrderPlaced] = useState(false)
   const [orderId, setOrderId] = useState('')
-
+  const [transactionId, setTransactionId] = useState('')
   const [form, setForm] = useState({ name: '', email: '', phone: '' })
+  const [paymentMethod, setPaymentMethod] = useState<string>('card')
+  const [cardForm, setCardForm] = useState({ number: '', expiry: '', cvc: '', name: '' })
 
   const total = totalPrice()
   const shipping = total >= 200 ? 0 : 25
+  const grandTotal = total + shipping
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm(prev => ({ ...prev, [e.target.name]: e.target.value }))
   }
 
-  const handleSubmit = async () => {
+  const handleCardChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let value = e.target.value
+    // Format card number with spaces
+    if (e.target.name === 'number') {
+      value = value.replace(/\D/g, '').replace(/(\d{4})(?=\d)/g, '$1 ').slice(0, 19)
+    }
+    // Format expiry MM/YY
+    if (e.target.name === 'expiry') {
+      value = value.replace(/\D/g, '').replace(/(\d{2})(?=\d)/, '$1/').slice(0, 5)
+    }
+    // CVC max 4 digits
+    if (e.target.name === 'cvc') {
+      value = value.replace(/\D/g, '').slice(0, 4)
+    }
+    setCardForm(prev => ({ ...prev, [e.target.name]: value }))
+  }
+
+  const handleInfoSubmit = () => {
     if (!form.name || !form.email) {
       toast({ title: 'Missing fields', description: 'Please fill in your name and email.', variant: 'destructive' })
       return
     }
+    setStep('payment')
+  }
+
+  const handlePaymentSubmit = async () => {
+    if (paymentMethod === 'card' || paymentMethod === 'mada') {
+      if (!cardForm.number || !cardForm.expiry || !cardForm.cvc || !cardForm.name) {
+        toast({ title: 'Missing card details', description: 'Please fill in all card fields.', variant: 'destructive' })
+        return
+      }
+    }
+    if (paymentMethod === 'applepay') {
+      // Simulate Apple Pay confirmation
+    }
 
     setIsSubmitting(true)
+    setStep('processing')
+
     try {
-      const res = await fetch('/api/orders', {
+      // 1. Create the order first
+      const orderRes = await fetch('/api/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2178,34 +2224,78 @@ function CheckoutView() {
           items: items.map(i => ({ productId: i.productId, name: i.name, price: i.price, quantity: i.quantity })),
           currency: getCountryByCode(selectedCountry).currency,
           country: selectedCountry,
+          paymentMethod,
         }),
       })
-      const data = await res.json()
-      if (res.ok) {
-        setOrderId(data.id)
-        setOrderPlaced(true)
+      const orderData = await orderRes.json()
+
+      if (!orderRes.ok) {
+        toast({ title: 'Error', description: 'Failed to create order.', variant: 'destructive' })
+        setStep('info')
+        setIsSubmitting(false)
+        return
+      }
+
+      setOrderId(orderData.id)
+
+      // 2. Process the payment
+      const cardLast4 = cardForm.number ? cardForm.number.replace(/\s/g, '').slice(-4) : undefined
+
+      // Simulate processing delay
+      await new Promise(resolve => setTimeout(resolve, 2000))
+
+      const paymentRes = await fetch('/api/payment/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderId: orderData.id,
+          paymentMethod,
+          cardLast4,
+        }),
+      })
+      const paymentData = await paymentRes.json()
+
+      if (paymentData.success) {
+        setTransactionId(paymentData.transactionId)
+        setStep('success')
         clearCart()
-        toast({ title: 'Order placed!', description: 'Your order has been placed successfully.' })
+        toast({ title: 'Payment successful!', description: 'Your order has been placed.' })
       } else {
-        toast({ title: 'Error', description: 'Failed to place order. Please try again.', variant: 'destructive' })
+        setTransactionId(paymentData.transactionId || '')
+        setStep('failed')
+        toast({ title: 'Payment failed', description: paymentData.message || 'Payment was declined.', variant: 'destructive' })
       }
     } catch {
+      setStep('failed')
       toast({ title: 'Error', description: 'Network error. Please try again.', variant: 'destructive' })
     }
     setIsSubmitting(false)
   }
 
-  if (orderPlaced) {
+  // Payment method configs
+  const paymentMethods = [
+    { id: 'card', label: 'Credit / Debit Card', icon: CreditCard, desc: 'Visa, Mastercard', color: 'from-blue-500 to-blue-600' },
+    { id: 'mada', label: 'Mada', icon: Banknote, desc: 'Saudi debit cards', color: 'from-emerald-500 to-teal-500' },
+    { id: 'applepay', label: 'Apple Pay', icon: Smartphone, desc: 'Quick & secure', color: 'from-gray-700 to-gray-900' },
+    { id: 'cod', label: 'Cash on Delivery', icon: Wallet, desc: 'Pay when received', color: 'from-amber-500 to-orange-500' },
+  ]
+
+  // ─── Success State ──────────────────────────────────────────────────────
+  if (step === 'success') {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-16 text-center">
         <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring', stiffness: 200 }}>
           <div className="size-20 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center mx-auto mb-6">
             <CheckCircle2 className="size-10 text-emerald-600" />
           </div>
-          <h2 className="font-serif text-3xl font-bold mb-4">Order Confirmed!</h2>
+          <h2 className="font-serif text-3xl font-bold mb-4">Payment Successful!</h2>
           <p className="text-muted-foreground mb-2">Thank you for your purchase.</p>
-          <p className="text-sm text-muted-foreground mb-8">Order ID: <span className="font-mono text-foreground">{orderId.slice(0, 12)}</span></p>
-          <div className="flex gap-4 justify-center">
+          <p className="text-sm text-muted-foreground mb-1">Order ID: <span className="font-mono text-foreground">{orderId.slice(0, 12)}</span></p>
+          <p className="text-sm text-muted-foreground mb-1">Transaction: <span className="font-mono text-foreground">{transactionId}</span></p>
+          <Badge className="mt-3 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" variant="secondary">
+            <CheckCircle2 className="size-3 mr-1" /> Payment Confirmed
+          </Badge>
+          <div className="mt-8 flex gap-4 justify-center">
             <Button onClick={() => setView({ view: 'products' })}>Continue Shopping</Button>
             <Button variant="outline" onClick={() => setView({ view: 'home' })}>Back to Home</Button>
           </div>
@@ -2214,6 +2304,43 @@ function CheckoutView() {
     )
   }
 
+  // ─── Failed State ───────────────────────────────────────────────────────
+  if (step === 'failed') {
+    return (
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-16 text-center">
+        <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring', stiffness: 200 }}>
+          <div className="size-20 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center mx-auto mb-6">
+            <AlertCircle className="size-10 text-red-600" />
+          </div>
+          <h2 className="font-serif text-3xl font-bold mb-4">Payment Failed</h2>
+          <p className="text-muted-foreground mb-2">Your payment could not be processed.</p>
+          {transactionId && <p className="text-sm text-muted-foreground mb-4">Transaction: <span className="font-mono">{transactionId}</span></p>}
+          <div className="mt-6 flex gap-4 justify-center">
+            <Button onClick={() => { setStep('payment'); setTransactionId('') }}>Try Again</Button>
+            <Button variant="outline" onClick={() => setView({ view: 'cart' })}>Back to Cart</Button>
+          </div>
+        </motion.div>
+      </div>
+    )
+  }
+
+  // ─── Processing State ───────────────────────────────────────────────────
+  if (step === 'processing') {
+    return (
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-16 text-center">
+        <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}>
+          <div className="size-20 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-6">
+            <RefreshCw className="size-10 text-primary animate-spin" />
+          </div>
+          <h2 className="font-serif text-3xl font-bold mb-4">Processing Payment</h2>
+          <p className="text-muted-foreground">Please wait while we process your payment...</p>
+          <p className="text-sm text-muted-foreground mt-2">Do not close this page.</p>
+        </motion.div>
+      </div>
+    )
+  }
+
+  // ─── Empty Cart ─────────────────────────────────────────────────────────
   if (items.length === 0) {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-16 text-center">
@@ -2234,33 +2361,199 @@ function CheckoutView() {
           <ArrowLeft className="size-4" /> Back to Cart
         </button>
 
-        <h1 className="font-serif text-3xl font-bold mb-8">Checkout</h1>
+        <h1 className="font-serif text-3xl font-bold mb-2">Checkout</h1>
+
+        {/* Step Indicator */}
+        <div className="flex items-center gap-2 mb-8">
+          {['info', 'payment'].map((s, i) => (
+            <React.Fragment key={s}>
+              <button
+                onClick={() => { if (s === 'info') setStep('info') }}
+                className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all ${
+                  step === s ? 'bg-primary text-primary-foreground' : s === 'info' && step === 'payment' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-secondary text-muted-foreground'
+                }`}
+              >
+                {s === 'info' && step === 'payment' ? <Check className="size-4" /> : <span>{i + 1}</span>}
+                {s === 'info' ? 'Information' : 'Payment'}
+              </button>
+              {i === 0 && <ChevronRight className="size-4 text-muted-foreground" />}
+            </React.Fragment>
+          ))}
+        </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Form */}
           <div className="lg:col-span-2">
-            <Card>
-              <CardHeader>
-                <CardTitle className="font-serif">Customer Information</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <Label htmlFor="name">Full Name *</Label>
-                  <Input id="name" name="name" placeholder="Your full name" value={form.name} onChange={handleChange} className="mt-1.5" />
-                </div>
-                <div>
-                  <Label htmlFor="email">Email Address *</Label>
-                  <Input id="email" name="email" type="email" placeholder="your@email.com" value={form.email} onChange={handleChange} className="mt-1.5" />
-                </div>
-                <div>
-                  <Label htmlFor="phone">Phone Number</Label>
-                  <Input id="phone" name="phone" type="tel" placeholder="+966 5X XXX XXXX" value={form.phone} onChange={handleChange} className="mt-1.5" />
-                </div>
-              </CardContent>
-            </Card>
+            {/* ─── Step 1: Customer Info ──────────────────────────────── */}
+            {step === 'info' && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="font-serif flex items-center gap-2">
+                    <UserCircle className="size-5 text-primary" /> Customer Information
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <Label htmlFor="name">Full Name *</Label>
+                    <Input id="name" name="name" placeholder="Your full name" value={form.name} onChange={handleChange} className="mt-1.5" />
+                  </div>
+                  <div>
+                    <Label htmlFor="email">Email Address *</Label>
+                    <Input id="email" name="email" type="email" placeholder="your@email.com" value={form.email} onChange={handleChange} className="mt-1.5" />
+                  </div>
+                  <div>
+                    <Label htmlFor="phone">Phone Number</Label>
+                    <Input id="phone" name="phone" type="tel" placeholder="+966 5X XXX XXXX" value={form.phone} onChange={handleChange} className="mt-1.5" />
+                  </div>
+                </CardContent>
+                <CardFooter>
+                  <Button className="w-full" size="lg" onClick={handleInfoSubmit}>
+                    Continue to Payment <ArrowRight className="size-4 ml-2" />
+                  </Button>
+                </CardFooter>
+              </Card>
+            )}
+
+            {/* ─── Step 2: Payment ──────────────────────────────────── */}
+            {step === 'payment' && (
+              <div className="space-y-6">
+                {/* Customer Info Summary */}
+                <Card className="border-emerald-200 dark:border-emerald-800">
+                  <CardContent className="p-4 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="size-8 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+                        <Check className="size-4 text-emerald-600" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-sm">{form.name}</p>
+                        <p className="text-xs text-muted-foreground">{form.email}{form.phone ? ` • ${form.phone}` : ''}</p>
+                      </div>
+                    </div>
+                    <Button variant="ghost" size="sm" onClick={() => setStep('info')}>Edit</Button>
+                  </CardContent>
+                </Card>
+
+                {/* Payment Method Selection */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="font-serif flex items-center gap-2">
+                      <CreditCard className="size-5 text-primary" /> Payment Method
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {paymentMethods.map(pm => (
+                      <button
+                        key={pm.id}
+                        onClick={() => setPaymentMethod(pm.id)}
+                        className={`w-full flex items-center gap-4 p-4 rounded-xl border-2 transition-all text-left ${
+                          paymentMethod === pm.id
+                            ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
+                            : 'border-border hover:border-primary/40 hover:bg-secondary/50'
+                        }`}
+                      >
+                        <div className={`size-12 rounded-xl bg-gradient-to-br ${pm.color} flex items-center justify-center text-white shrink-0`}>
+                          <pm.icon className="size-6" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-sm">{pm.label}</p>
+                          <p className="text-xs text-muted-foreground">{pm.desc}</p>
+                        </div>
+                        <div className={`size-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                          paymentMethod === pm.id ? 'border-primary' : 'border-muted-foreground/30'
+                        }`}>
+                          {paymentMethod === pm.id && <div className="size-2.5 rounded-full bg-primary" />}
+                        </div>
+                      </button>
+                    ))}
+                  </CardContent>
+                </Card>
+
+                {/* Card Details Form (for card/mada) */}
+                {(paymentMethod === 'card' || paymentMethod === 'mada') && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="font-serif text-base flex items-center gap-2">
+                        <Lock className="size-4 text-primary" /> Card Details
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div>
+                        <Label htmlFor="cardName">Cardholder Name</Label>
+                        <Input id="cardName" name="name" placeholder="Name on card" value={cardForm.name} onChange={handleCardChange} className="mt-1.5" />
+                      </div>
+                      <div>
+                        <Label htmlFor="cardNumber">Card Number</Label>
+                        <div className="relative mt-1.5">
+                          <Input id="cardNumber" name="number" placeholder="4242 4242 4242 4242" value={cardForm.number} onChange={handleCardChange} className="pr-12 font-mono" />
+                          <CreditCard className="absolute right-3 top-1/2 -translate-y-1/2 size-5 text-muted-foreground" />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <Label htmlFor="cardExpiry">Expiry Date</Label>
+                          <Input id="cardExpiry" name="expiry" placeholder="MM/YY" value={cardForm.expiry} onChange={handleCardChange} className="mt-1.5 font-mono" />
+                        </div>
+                        <div>
+                          <Label htmlFor="cardCvc">CVC</Label>
+                          <Input id="cardCvc" name="cvc" placeholder="123" value={cardForm.cvc} onChange={handleCardChange} className="mt-1.5 font-mono" />
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Lock className="size-3" />
+                        <span>Your payment is secured with 256-bit SSL encryption</span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Apple Pay notice */}
+                {paymentMethod === 'applepay' && (
+                  <Card className="border-gray-300 dark:border-gray-700">
+                    <CardContent className="p-6 text-center">
+                      <Smartphone className="size-12 text-gray-600 dark:text-gray-400 mx-auto mb-3" />
+                      <p className="font-medium mb-1">Apple Pay</p>
+                      <p className="text-sm text-muted-foreground">Click &quot;Pay Now&quot; to confirm with Apple Pay. You&apos;ll see a confirmation prompt on your device.</p>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* COD notice */}
+                {paymentMethod === 'cod' && (
+                  <Card className="border-amber-300 dark:border-amber-800">
+                    <CardContent className="p-6">
+                      <div className="flex items-start gap-4">
+                        <div className="size-12 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center text-white shrink-0">
+                          <Wallet className="size-6" />
+                        </div>
+                        <div>
+                          <p className="font-medium mb-1">Cash on Delivery</p>
+                          <p className="text-sm text-muted-foreground">Pay when your order arrives. A small COD fee of SAR 10 may apply. Please have exact change ready.</p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Pay Button */}
+                <Button
+                  className="w-full"
+                  size="lg"
+                  onClick={handlePaymentSubmit}
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? (
+                    <><RefreshCw className="size-4 mr-2 animate-spin" /> Processing...</>
+                  ) : (
+                    <>
+                      <Lock className="size-4 mr-2" />
+                      Pay {formatPrice(grandTotal, selectedCountry)}
+                    </>
+                  )}
+                </Button>
+              </div>
+            )}
           </div>
 
-          {/* Order Summary */}
+          {/* Order Summary Sidebar */}
           <div>
             <Card className="sticky top-24">
               <CardHeader>
@@ -2284,18 +2577,21 @@ function CheckoutView() {
                   <span className="text-muted-foreground">Shipping</span>
                   <span>{shipping === 0 ? <span className="text-emerald-600">Free</span> : formatPrice(shipping, selectedCountry)}</span>
                 </div>
+                {paymentMethod === 'cod' && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">COD Fee</span>
+                    <span>{formatPrice(10, selectedCountry)}</span>
+                  </div>
+                )}
                 <Separator />
                 <div className="flex justify-between font-bold text-lg">
                   <span>Total</span>
-                  <span className="text-primary">{formatPrice(total + shipping, selectedCountry)}</span>
+                  <span className="text-primary">{formatPrice(grandTotal + (paymentMethod === 'cod' ? 10 : 0), selectedCountry)}</span>
                 </div>
-                <Button className="w-full mt-4" size="lg" onClick={handleSubmit} disabled={isSubmitting}>
-                  {isSubmitting ? (
-                    <><RefreshCw className="size-4 mr-2 animate-spin" /> Processing...</>
-                  ) : (
-                    <><CreditCard className="size-4 mr-2" /> Place Order</>
-                  )}
-                </Button>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground mt-2">
+                  <ShieldCheck className="size-3.5 text-emerald-600" />
+                  <span>Secure checkout • 256-bit SSL</span>
+                </div>
               </CardContent>
             </Card>
           </div>
@@ -2324,7 +2620,7 @@ function AdminDashboard() {
     { title: 'Total Products', value: stats?.totalProducts ?? 0, icon: Package, color: 'from-amber-500 to-orange-500' },
     { title: 'Total Orders', value: stats?.totalOrders ?? 0, icon: ClipboardList, color: 'from-emerald-500 to-teal-500' },
     { title: 'Total Revenue', value: stats?.totalRevenue ?? 0, icon: DollarSign, color: 'from-primary to-amber-500', isPrice: true },
-    { title: 'Pending Orders', value: stats?.ordersByStatus?.find(o => o.status === 'pending')?._count.status ?? 0, icon: Clock, color: 'from-rose-500 to-pink-500' },
+    { title: 'Paid Revenue', value: stats?.paidRevenue ?? 0, icon: CircleDollarSign, color: 'from-emerald-600 to-green-500', isPrice: true },
   ]
 
   const chartData = useMemo(() => {
@@ -2338,8 +2634,24 @@ function AdminDashboard() {
   const statusColors: Record<string, string> = {
     pending: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
     processing: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400',
+    confirmed: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
     shipped: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
     delivered: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+    cancelled: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+  }
+
+  const paymentStatusColors: Record<string, string> = {
+    pending: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+    paid: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+    failed: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+    refunded: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+  }
+
+  const paymentMethodLabels: Record<string, string> = {
+    card: '💳 Credit Card',
+    mada: '🏦 Mada',
+    applepay: '🍎 Apple Pay',
+    cod: '💵 Cash on Delivery',
   }
 
   return (
@@ -2393,6 +2705,55 @@ function AdminDashboard() {
               ))}
             </div>
 
+            {/* Payment Status Overview */}
+            {stats?.paymentStats && stats.paymentStats.length > 0 && (
+              <Card className="mb-8">
+                <CardHeader>
+                  <CardTitle className="font-serif flex items-center gap-2">
+                    <Receipt className="size-5 text-primary" /> Payment Status Overview
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    {stats.paymentStats.map(ps => (
+                      <div key={ps.status} className="flex items-center gap-3 p-3 rounded-xl border">
+                        <Badge className={`${paymentStatusColors[ps.status] || ''} text-xs px-2 py-1`} variant="secondary">
+                          {ps.status}
+                        </Badge>
+                        <div className="flex-1">
+                          <p className="font-semibold text-lg">{ps.count}</p>
+                          <p className="text-xs text-muted-foreground">{formatPrice(ps.total, selectedCountry)}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Payment Method Breakdown */}
+            {stats?.paymentMethodStats && stats.paymentMethodStats.length > 0 && (
+              <Card className="mb-8">
+                <CardHeader>
+                  <CardTitle className="font-serif flex items-center gap-2">
+                    <CircleDollarSign className="size-5 text-primary" /> Payment Methods
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    {stats.paymentMethodStats.map(pms => (
+                      <div key={pms.method} className="p-4 rounded-xl border flex flex-col items-center text-center">
+                        <span className="text-2xl mb-2">{paymentMethodLabels[pms.method]?.split(' ')[0] || '💳'}</span>
+                        <p className="font-medium text-sm">{paymentMethodLabels[pms.method]?.split(' ').slice(1).join(' ') || pms.method}</p>
+                        <p className="text-2xl font-bold mt-1">{pms.count}</p>
+                        <p className="text-xs text-muted-foreground">{formatPrice(pms.total, selectedCountry)}</p>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Revenue Chart */}
             {chartData.length > 0 && (
               <Card className="mb-8">
@@ -2440,6 +2801,7 @@ function AdminDashboard() {
                           <TableHead>Order ID</TableHead>
                           <TableHead>Customer</TableHead>
                           <TableHead>Total</TableHead>
+                          <TableHead>Payment</TableHead>
                           <TableHead>Status</TableHead>
                           <TableHead>Date</TableHead>
                         </TableRow>
@@ -2450,6 +2812,11 @@ function AdminDashboard() {
                             <TableCell className="font-mono text-xs">{order.id.slice(0, 10)}</TableCell>
                             <TableCell>{order.customerName}</TableCell>
                             <TableCell>{formatPrice(order.total, selectedCountry)}</TableCell>
+                            <TableCell>
+                              <Badge className={`${paymentStatusColors[order.paymentStatus] || ''} text-[10px]`} variant="secondary">
+                                {order.paymentStatus}
+                              </Badge>
+                            </TableCell>
                             <TableCell>
                               <Badge className={statusColors[order.status] || ''} variant="secondary">
                                 {order.status}
@@ -3266,27 +3633,97 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
 
 function AdminOrders() {
   const { selectedCountry } = useAppStore()
+  const { toast } = useToast()
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState('all')
+  const [paymentFilter, setPaymentFilter] = useState('all')
+  const [expandedOrder, setExpandedOrder] = useState<string | null>(null)
 
-  useEffect(() => {
+  const refreshOrders = useCallback(() => {
     fetch('/api/orders')
       .then(r => r.json())
       .then(data => { setOrders(data); setLoading(false) })
       .catch(() => setLoading(false))
   }, [])
 
+  useEffect(() => { refreshOrders() }, [refreshOrders])
+
   const filtered = useMemo(() => {
-    if (statusFilter === 'all') return orders
-    return orders.filter(o => o.status === statusFilter)
-  }, [orders, statusFilter])
+    let result = orders
+    if (statusFilter !== 'all') result = result.filter(o => o.status === statusFilter)
+    if (paymentFilter !== 'all') result = result.filter(o => o.paymentStatus === paymentFilter)
+    return result
+  }, [orders, statusFilter, paymentFilter])
+
+  const updateOrderStatus = async (orderId: string, status: string) => {
+    try {
+      const res = await fetch('/api/orders', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId, status }),
+      })
+      if (res.ok) {
+        toast({ title: 'Order updated', description: `Status changed to ${status}.` })
+        refreshOrders()
+      }
+    } catch {}
+  }
+
+  const updatePaymentStatus = async (orderId: string, paymentStatus: string) => {
+    try {
+      const res = await fetch('/api/orders', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId, paymentStatus }),
+      })
+      if (res.ok) {
+        toast({ title: 'Payment updated', description: `Payment status changed to ${paymentStatus}.` })
+        refreshOrders()
+      }
+    } catch {}
+  }
+
+  const handleRefund = async (orderId: string) => {
+    try {
+      const res = await fetch('/api/payment/refund', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        toast({ title: 'Refund processed', description: data.message })
+        refreshOrders()
+      } else {
+        toast({ title: 'Refund failed', description: data.error, variant: 'destructive' })
+      }
+    } catch {
+      toast({ title: 'Error', description: 'Failed to process refund', variant: 'destructive' })
+    }
+  }
 
   const statusColors: Record<string, string> = {
     pending: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+    confirmed: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
     processing: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400',
     shipped: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
     delivered: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+    cancelled: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+  }
+
+  const paymentStatusColors: Record<string, string> = {
+    pending: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+    paid: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+    failed: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+    refunded: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+  }
+
+  const paymentMethodLabels: Record<string, { label: string; icon: React.ReactNode }> = {
+    card: { label: 'Credit Card', icon: <CreditCard className="size-3.5" /> },
+    mada: { label: 'Mada', icon: <Banknote className="size-3.5" /> },
+    applepay: { label: 'Apple Pay', icon: <Smartphone className="size-3.5" /> },
+    cod: { label: 'COD', icon: <Wallet className="size-3.5" /> },
   }
 
   return (
@@ -3297,69 +3734,201 @@ function AdminOrders() {
             <h1 className="font-serif text-3xl font-bold">Manage Orders</h1>
             <p className="text-muted-foreground">{orders.length} total orders</p>
           </div>
-          <Button variant="outline" onClick={() => useAppStore.getState().setView({ view: 'admin' })}>
-            <ArrowLeft className="size-4 mr-1" /> Dashboard
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={refreshOrders}>
+              <RefreshCw className="size-4 mr-1" /> Refresh
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => useAppStore.getState().setView({ view: 'admin' })}>
+              <ArrowLeft className="size-4 mr-1" /> Dashboard
+            </Button>
+          </div>
         </div>
 
-        <div className="mb-6">
+        <div className="flex flex-wrap gap-3 mb-6">
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-48"><SelectValue placeholder="Filter by status" /></SelectTrigger>
+            <SelectTrigger className="w-44"><SelectValue placeholder="Order status" /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Statuses</SelectItem>
+              <SelectItem value="all">All Order Statuses</SelectItem>
               <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="confirmed">Confirmed</SelectItem>
               <SelectItem value="processing">Processing</SelectItem>
               <SelectItem value="shipped">Shipped</SelectItem>
               <SelectItem value="delivered">Delivered</SelectItem>
+              <SelectItem value="cancelled">Cancelled</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={paymentFilter} onValueChange={setPaymentFilter}>
+            <SelectTrigger className="w-44"><SelectValue placeholder="Payment status" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Payment Statuses</SelectItem>
+              <SelectItem value="pending">💰 Pending</SelectItem>
+              <SelectItem value="paid">✅ Paid</SelectItem>
+              <SelectItem value="failed">❌ Failed</SelectItem>
+              <SelectItem value="refunded">🔄 Refunded</SelectItem>
             </SelectContent>
           </Select>
         </div>
 
-        <Card>
-          <CardContent className="p-0">
-            {loading ? (
-              <div className="p-8 text-center text-muted-foreground">Loading orders...</div>
-            ) : (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Order ID</TableHead>
-                      <TableHead>Customer</TableHead>
-                      <TableHead>Items</TableHead>
-                      <TableHead>Total</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Date</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filtered.map(order => (
-                      <TableRow key={order.id}>
-                        <TableCell className="font-mono text-xs">{order.id.slice(0, 10)}</TableCell>
-                        <TableCell>
-                          <div>
-                            <p className="font-medium text-sm">{order.customerName}</p>
-                            <p className="text-xs text-muted-foreground">{order.customerEmail}</p>
+        <div className="space-y-4">
+          {loading ? (
+            <Card><CardContent className="p-8 text-center text-muted-foreground">Loading orders...</CardContent></Card>
+          ) : filtered.length === 0 ? (
+            <Card><CardContent className="p-8 text-center text-muted-foreground">No orders found.</CardContent></Card>
+          ) : (
+            filtered.map(order => (
+              <Card key={order.id} className="overflow-hidden">
+                <CardContent className="p-0">
+                  {/* Order Header - Always Visible */}
+                  <button
+                    onClick={() => setExpandedOrder(expandedOrder === order.id ? null : order.id)}
+                    className="w-full p-4 flex items-center gap-4 text-left hover:bg-secondary/50 transition-colors"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <span className="font-mono text-xs bg-secondary px-2 py-1 rounded">{order.id.slice(0, 10)}</span>
+                        <Badge className={statusColors[order.status] || ''} variant="secondary">{order.status}</Badge>
+                        <Badge className={`${paymentStatusColors[order.paymentStatus] || ''} text-[10px]`} variant="secondary">
+                          {order.paymentStatus}
+                        </Badge>
+                        {order.paymentMethod && paymentMethodLabels[order.paymentMethod] && (
+                          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                            {paymentMethodLabels[order.paymentMethod].icon}
+                            {paymentMethodLabels[order.paymentMethod].label}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-4 mt-2 text-sm">
+                        <span className="font-medium">{order.customerName}</span>
+                        <span className="text-muted-foreground">{order.customerEmail}</span>
+                        <span className="text-muted-foreground">{new Date(order.createdAt).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="font-bold text-lg">{formatPrice(order.total, selectedCountry)}</p>
+                      <p className="text-xs text-muted-foreground">{order.items.length} item(s)</p>
+                    </div>
+                    <ChevronDown className={`size-5 text-muted-foreground transition-transform ${expandedOrder === order.id ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  {/* Expanded Details */}
+                  <AnimatePresence>
+                    {expandedOrder === order.id && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="overflow-hidden"
+                      >
+                        <div className="border-t p-4 space-y-4">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {/* Payment Details */}
+                            <div className="p-3 rounded-lg border bg-secondary/30">
+                              <p className="font-semibold text-sm mb-2 flex items-center gap-2">
+                                <Receipt className="size-4 text-primary" /> Payment Details
+                              </p>
+                              <div className="space-y-1.5 text-sm">
+                                <div className="flex justify-between">
+                                  <span className="text-muted-foreground">Method</span>
+                                  <span className="flex items-center gap-1">
+                                    {order.paymentMethod && paymentMethodLabels[order.paymentMethod]?.icon}
+                                    {order.paymentMethod || 'N/A'}
+                                  </span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-muted-foreground">Status</span>
+                                  <Badge className={`${paymentStatusColors[order.paymentStatus] || ''} text-[10px]`} variant="secondary">
+                                    {order.paymentStatus}
+                                  </Badge>
+                                </div>
+                                {order.transactionId && (
+                                  <div className="flex justify-between">
+                                    <span className="text-muted-foreground">Transaction</span>
+                                    <span className="font-mono text-xs">{order.transactionId}</span>
+                                  </div>
+                                )}
+                                {order.cardLast4 && (
+                                  <div className="flex justify-between">
+                                    <span className="text-muted-foreground">Card</span>
+                                    <span className="font-mono text-xs">•••• {order.cardLast4}</span>
+                                  </div>
+                                )}
+                                {order.paidAt && (
+                                  <div className="flex justify-between">
+                                    <span className="text-muted-foreground">Paid At</span>
+                                    <span className="text-xs">{new Date(order.paidAt).toLocaleString()}</span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Order Items */}
+                            <div className="p-3 rounded-lg border bg-secondary/30 sm:col-span-2">
+                              <p className="font-semibold text-sm mb-2 flex items-center gap-2">
+                                <Package className="size-4 text-primary" /> Items
+                              </p>
+                              <div className="space-y-1.5">
+                                {order.items.map(item => (
+                                  <div key={item.id} className="flex justify-between text-sm">
+                                    <span className="truncate mr-2">{item.name} x{item.quantity}</span>
+                                    <span className="shrink-0">{formatPrice(item.price * item.quantity, selectedCountry)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
                           </div>
-                        </TableCell>
-                        <TableCell className="text-sm">{order.items.length} item(s)</TableCell>
-                        <TableCell className="font-semibold">{formatPrice(order.total, selectedCountry)}</TableCell>
-                        <TableCell>
-                          <Badge className={statusColors[order.status] || ''} variant="secondary">
-                            {order.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-muted-foreground text-sm">
-                          {new Date(order.createdAt).toLocaleDateString()}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+
+                          {/* Actions */}
+                          <div className="flex flex-wrap gap-2 pt-2 border-t">
+                            {/* Order Status Actions */}
+                            <span className="text-xs text-muted-foreground self-center mr-2">Order:</span>
+                            {['confirmed', 'processing', 'shipped', 'delivered', 'cancelled'].map(s => (
+                              <Button
+                                key={s}
+                                variant={order.status === s ? 'default' : 'outline'}
+                                size="sm"
+                                className="h-7 text-xs"
+                                onClick={() => updateOrderStatus(order.id, s)}
+                                disabled={order.status === s}
+                              >
+                                {s}
+                              </Button>
+                            ))}
+
+                            <Separator orientation="vertical" className="h-7 mx-2" />
+
+                            {/* Payment Status Actions */}
+                            <span className="text-xs text-muted-foreground self-center mr-2">Payment:</span>
+                            {order.paymentStatus !== 'paid' && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 text-xs text-emerald-600 hover:text-emerald-700"
+                                onClick={() => updatePaymentStatus(order.id, 'paid')}
+                              >
+                                <Check className="size-3 mr-1" /> Mark Paid
+                              </Button>
+                            )}
+                            {order.paymentStatus === 'paid' && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 text-xs text-purple-600 hover:text-purple-700"
+                                onClick={() => handleRefund(order.id)}
+                              >
+                                <RotateCcw className="size-3 mr-1" /> Refund
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </CardContent>
+              </Card>
+            ))
+          )}
+        </div>
       </motion.div>
     </div>
   )

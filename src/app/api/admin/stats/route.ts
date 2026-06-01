@@ -29,6 +29,29 @@ export async function GET() {
       LIMIT 12
     `
 
+    // Payment stats
+    const paymentStats = await db.order.groupBy({
+      by: ['paymentStatus'],
+      _count: { paymentStatus: true },
+      _sum: { total: true },
+    })
+
+    const paymentMethodStats = await db.order.groupBy({
+      by: ['paymentMethod'],
+      _count: { paymentMethod: true },
+      _sum: { total: true },
+    })
+
+    const paidRevenue = await db.order.aggregate({
+      _sum: { total: true },
+      where: { paymentStatus: 'paid' },
+    })
+
+    const pendingPayments = await db.order.aggregate({
+      _sum: { total: true },
+      where: { paymentStatus: 'pending' },
+    })
+
     return Response.json({
       totalProducts: stats[0],
       totalOrders: stats[1],
@@ -37,6 +60,18 @@ export async function GET() {
       categories: stats[4],
       recentOrders,
       monthlyRevenue,
+      paymentStats: paymentStats.map(ps => ({
+        status: ps.paymentStatus,
+        count: ps._count.paymentStatus,
+        total: ps._sum.total || 0,
+      })),
+      paymentMethodStats: paymentMethodStats.map(pms => ({
+        method: pms.paymentMethod,
+        count: pms._count.paymentMethod,
+        total: pms._sum.total || 0,
+      })),
+      paidRevenue: paidRevenue._sum.total || 0,
+      pendingPayments: pendingPayments._sum.total || 0,
     })
   } catch (error) {
     console.error(error)
