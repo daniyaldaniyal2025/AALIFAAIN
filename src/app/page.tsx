@@ -499,8 +499,6 @@ function HomeView({ products }: { products: Product[] }) {
   const { selectedCountry } = useAppStore()
   const { toast } = useToast()
 
-  const featuredProducts = useMemo(() => products.filter(p => p.featured).slice(0, 8), [products])
-
   const categories = useMemo(() => {
     const cats: { name: string; slug: string; description: string; count: number; comingSoon: boolean }[] = []
     const catMap = new Map<string, number>()
@@ -624,34 +622,6 @@ function HomeView({ products }: { products: Product[] }) {
           </motion.div>
         </div>
       </section>
-
-      {/* Featured Products Section */}
-      {featuredProducts.length > 0 && (
-        <section className="py-16 sm:py-20 bg-secondary/30">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6">
-            <motion.div {...fadeIn} viewport={{ once: true }} className="flex items-center justify-between mb-8">
-              <div>
-                <h2 className="font-serif text-3xl sm:text-4xl font-bold mb-2">Featured Products</h2>
-                <p className="text-muted-foreground">Hand-picked favorites just for you</p>
-              </div>
-              <Button variant="outline" onClick={() => setView({ view: 'products' })} className="hidden sm:flex">
-                View All <ArrowRight className="size-4 ml-1" />
-              </Button>
-            </motion.div>
-
-            <div className="flex gap-4 overflow-x-auto pb-4 -mx-4 px-4 snap-x snap-mandatory scrollbar-thin">
-              {featuredProducts.map(product => (
-                <ProductCard key={product.id} product={product} />
-              ))}
-            </div>
-            <div className="mt-4 sm:hidden text-center">
-              <Button variant="outline" onClick={() => setView({ view: 'products' })}>
-                View All Products <ArrowRight className="size-4 ml-1" />
-              </Button>
-            </div>
-          </div>
-        </section>
-      )}
 
       {/* Why Choose Us */}
       <section className="py-16 sm:py-20">
