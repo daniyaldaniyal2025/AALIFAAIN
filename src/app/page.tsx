@@ -1,10 +1,11 @@
 'use client'
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTheme } from 'next-themes'
 import { useCartStore, useAppStore } from '@/stores/app-store'
 import { useAuthStore } from '@/stores/auth-store'
+import { getSocket, disconnectSocket, emitProductChange } from '@/lib/realtime'
 import { formatPrice, countries, getCountryByCode } from '@/lib/currency'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card'
@@ -2674,6 +2675,7 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
         setShowAddDialog(false)
         resetForm()
         await refreshProducts()
+        emitProductChange('created', data.id)
       } else {
         setFormError(data.error || 'Failed to create product')
       }
@@ -2714,6 +2716,7 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
         resetForm()
         setSelectedProduct(null)
         await refreshProducts()
+        emitProductChange('updated', selectedProduct.id)
       } else {
         setFormError(data.error || 'Failed to update product')
       }
@@ -2725,14 +2728,17 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
 
   const handleDeleteProduct = async () => {
     if (!selectedProduct) return
+    const deletedId = selectedProduct.id
+    const deletedName = selectedProduct.name
     setSaving(true)
     try {
-      const res = await fetch(`/api/products/${selectedProduct.id}`, { method: 'DELETE' })
+      const res = await fetch(`/api/products/${deletedId}`, { method: 'DELETE' })
       if (res.ok) {
-        toast({ title: 'Product deleted', description: `${selectedProduct.name} has been removed.`, variant: 'destructive' })
+        toast({ title: 'Product deleted', description: `${deletedName} has been removed.`, variant: 'destructive' })
         setShowDeleteDialog(false)
         setSelectedProduct(null)
         await refreshProducts()
+        emitProductChange('deleted', deletedId)
       } else {
         const data = await res.json()
         toast({ title: 'Error', description: data.error || 'Failed to delete product', variant: 'destructive' })
@@ -2754,6 +2760,7 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
       if (res.ok) {
         toast({ title: `Product ${newStatus}`, description: `${product.name} is now ${newStatus}.` })
         await refreshProducts()
+        emitProductChange('updated', product.id)
       }
     } catch {}
   }
@@ -2768,6 +2775,7 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
       if (res.ok) {
         toast({ title: product.featured ? 'Unfeatured' : 'Featured', description: `${product.name} ${product.featured ? 'removed from' : 'added to'} featured.` })
         await refreshProducts()
+        emitProductChange('updated', product.id)
       }
     } catch {}
   }
@@ -4697,13 +4705,29 @@ export default function AlifaainPage() {
     }
   }, [seeded])
 
-  // Refresh products (called after admin CRUD operations)
+  // Refresh products (called after admin CRUD operations or realtime events)
   const refreshProducts = useCallback(() => {
     fetch('/api/products')
       .then(r => r.json())
       .then(data => { if (Array.isArray(data)) setProducts(data) })
       .catch(() => {})
   }, [])
+
+  // ─── Realtime Socket.io Connection ──────────────────────────────────────────
+  useEffect(() => {
+    const socket = getSocket()
+
+    // Listen for product change events and auto-refresh
+    socket.on('product:changed', (data: { action: string; productId?: string }) => {
+      console.log(`[Realtime] Product ${data.action} — refreshing...`)
+      refreshProducts()
+    })
+
+    return () => {
+      socket.off('product:changed')
+      disconnectSocket()
+    }
+  }, [refreshProducts])
 
   // Scroll to top on view change
   useEffect(() => {
