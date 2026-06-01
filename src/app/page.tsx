@@ -779,11 +779,25 @@ function ProductsView({ products }: { products: Product[] }) {
   const [priceRange, setPriceRange] = useState([0, 500])
   const [selectedCats, setSelectedCats] = useState<string[]>(selectedCategory ? [selectedCategory] : [])
   const [showFilters, setShowFilters] = useState(false)
+  const [allCategories, setAllCategories] = useState<Category[]>([])
 
-  const allCategories = useMemo(() => {
-    const map = new Map<string, Category>()
-    products.forEach(p => { if (!map.has(p.category.id)) map.set(p.category.id, p.category) })
-    return Array.from(map.values())
+  // Fetch all categories from API
+  useEffect(() => {
+    fetch('/api/categories')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) setAllCategories(data)
+      })
+      .catch(() => {})
+  }, [])
+
+  // Count products per category
+  const productCountByCategory = useMemo(() => {
+    const map = new Map<string, number>()
+    products.forEach(p => {
+      map.set(p.categoryId, (map.get(p.categoryId) || 0) + 1)
+    })
+    return map
   }, [products])
 
   // Merge store category with local filters
@@ -793,7 +807,7 @@ function ProductsView({ products }: { products: Product[] }) {
   }, [selectedCategory, selectedCats])
 
   const filteredProducts = useMemo(() => {
-    let result = products.filter(p => p.status === 'active' && p.category.status !== 'coming_soon')
+    let result = products.filter(p => p.status === 'active')
 
     if (searchQuery) {
       const q = searchQuery.toLowerCase()
@@ -823,6 +837,59 @@ function ProductsView({ products }: { products: Product[] }) {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
       <motion.div {...fadeIn}>
+        {/* Page Header */}
+        <div className="mb-8">
+          <h1 className="font-serif text-3xl sm:text-4xl font-bold mb-2">Shop All</h1>
+          <p className="text-muted-foreground">Browse our entire collection across all categories</p>
+        </div>
+
+        {/* Category Cards Row */}
+        <div className="mb-8">
+          <motion.div variants={staggerContainer} initial="initial" animate="animate" className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+            {/* All Products Card */}
+            <motion.div variants={staggerItem}>
+              <button
+                onClick={() => { setSelectedCategory(null); setSelectedCats([]) }}
+                className={`w-full text-left rounded-xl overflow-hidden transition-all duration-300 hover:scale-[1.03] hover:shadow-lg ${
+                  activeCategories.length === 0 ? 'ring-2 ring-primary ring-offset-2 ring-offset-background' : ''
+                }`}
+              >
+                <div className="relative bg-gradient-to-br from-amber-500 via-orange-500 to-red-500 p-4 text-white">
+                  <span className="text-2xl mb-1 block">🛍️</span>
+                  <h3 className="font-serif font-bold text-sm mb-0.5">All Products</h3>
+                  <span className="text-[11px] text-white/70">{products.filter(p => p.status === 'active').length} products</span>
+                </div>
+              </button>
+            </motion.div>
+            {allCategories.map(cat => {
+              const count = productCountByCategory.get(cat.id) || 0
+              const isComingSoon = cat.status === 'coming_soon'
+              const isActive = activeCategories.includes(cat.slug)
+              return (
+                <motion.div key={cat.id} variants={staggerItem}>
+                  <button
+                    onClick={() => { if (!isComingSoon) { setSelectedCategory(cat.slug); setSelectedCats([cat.slug]) } }}
+                    className={`w-full text-left rounded-xl overflow-hidden transition-all duration-300 ${
+                      isComingSoon ? 'opacity-50 cursor-not-allowed' : 'hover:scale-[1.03] hover:shadow-lg cursor-pointer'
+                    } ${isActive ? 'ring-2 ring-primary ring-offset-2 ring-offset-background' : ''}`}
+                    disabled={isComingSoon}
+                  >
+                    <div className={`relative bg-gradient-to-br ${getGradientForCategory(cat.slug)} p-4 text-white overflow-hidden`}>
+                      <span className="text-2xl mb-1 block">{categoryIcons[cat.slug] || '📦'}</span>
+                      <h3 className="font-serif font-bold text-sm mb-0.5">{cat.name}</h3>
+                      {isComingSoon ? (
+                        <Badge variant="secondary" className="bg-white/20 text-white border-0 text-[9px]">Coming Soon</Badge>
+                      ) : (
+                        <span className="text-[11px] text-white/70">{count} products</span>
+                      )}
+                    </div>
+                  </button>
+                </motion.div>
+              )
+            })}
+          </motion.div>
+        </div>
+
         {/* Top Bar */}
         <div className="flex flex-col sm:flex-row gap-4 mb-6">
           <div className="relative flex-1">
@@ -860,12 +927,24 @@ function ProductsView({ products }: { products: Product[] }) {
                 <div>
                   <h4 className="font-semibold text-sm mb-3">Categories</h4>
                   <div className="space-y-2">
-                    {allCategories.filter(c => c.status !== 'coming_soon').map(cat => (
-                      <label key={cat.id} className="flex items-center gap-2 cursor-pointer text-sm">
-                        <Checkbox checked={selectedCats.includes(cat.slug)} onCheckedChange={() => toggleCat(cat.slug)} />
-                        <span>{categoryIcons[cat.slug]} {cat.name}</span>
-                      </label>
-                    ))}
+                    <label className="flex items-center gap-2 cursor-pointer text-sm">
+                      <Checkbox checked={activeCategories.length === 0} onCheckedChange={() => { setSelectedCategory(null); setSelectedCats([]) }} />
+                      <span>🛍️ All Products</span>
+                    </label>
+                    {allCategories.map(cat => {
+                      const isComingSoon = cat.status === 'coming_soon'
+                      return (
+                        <label key={cat.id} className={`flex items-center gap-2 text-sm ${isComingSoon ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+                          <Checkbox
+                            checked={selectedCats.includes(cat.slug)}
+                            onCheckedChange={() => { if (!isComingSoon) toggleCat(cat.slug) }}
+                            disabled={isComingSoon}
+                          />
+                          <span>{categoryIcons[cat.slug] || '📦'} {cat.name}</span>
+                          {isComingSoon && <Badge variant="secondary" className="text-[9px] ml-auto py-0 px-1.5">Soon</Badge>}
+                        </label>
+                      )
+                    })}
                   </div>
                 </div>
                 <Separator />
@@ -878,7 +957,7 @@ function ProductsView({ products }: { products: Product[] }) {
                   </div>
                 </div>
                 <Separator />
-                <Button variant="ghost" size="sm" className="w-full" onClick={() => { setSelectedCats([]); setPriceRange([0, 500]); setSearchQuery('') }}>
+                <Button variant="ghost" size="sm" className="w-full" onClick={() => { setSelectedCategory(null); setSelectedCats([]); setPriceRange([0, 500]); setSearchQuery('') }}>
                   Clear Filters
                 </Button>
               </CardContent>
