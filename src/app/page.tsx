@@ -209,7 +209,7 @@ function Header() {
                 className={`relative ${isActive ? 'bg-primary text-primary-foreground' : 'hover:bg-primary/10'}`}
               >
                 <item.icon className="size-4" />
-                <span className="hidden lg:inline">{item.label}</span>
+                <span>{item.label}</span>
                 {item.badge > 0 && (
                   <motion.span
                     key={item.badge}
