@@ -1979,7 +1979,7 @@ function ProductDetailView({ products }: { products: Product[] }) {
           <div className="flex flex-col">
             <Badge variant="secondary" className="w-fit mb-3">{categoryIcons[product.category.slug]} {product.category.name}</Badge>
             <h1 className="font-serif text-3xl sm:text-4xl font-bold mb-4">{product.name}</h1>
-            <p className="text-muted-foreground leading-relaxed mb-6">{product.description}</p>
+            <p className="text-muted-foreground leading-relaxed mb-6 whitespace-pre-line">{product.description}</p>
 
             <div className="mb-6">
               {product.discount > 0 ? (
@@ -3162,7 +3162,7 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
       </div>
       <div className="space-y-2">
         <Label htmlFor="form-desc">Description</Label>
-        <Textarea id="form-desc" value={formDescription} onChange={e => setFormDescription(e.target.value)} placeholder="Product description..." rows={3} />
+        <Textarea id="form-desc" value={formDescription} onChange={e => setFormDescription(e.target.value)} placeholder="Product description..." rows={5} className="resize-y min-h-[120px]" />
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
@@ -3463,7 +3463,7 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
 
         {/* Add Product Dialog */}
         <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-          <DialogContent className="sm:max-w-xl">
+          <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="font-serif text-xl flex items-center gap-2">
                 <Plus className="size-5 text-primary" /> Add New Product
@@ -3482,7 +3482,7 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
 
         {/* Edit Product Dialog */}
         <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
-          <DialogContent className="sm:max-w-xl">
+          <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="font-serif text-xl flex items-center gap-2">
                 <Pencil className="size-5 text-primary" /> Edit Product
@@ -3587,7 +3587,7 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
                   {selectedProduct.description && (
                     <div>
                       <p className="text-sm font-medium mb-1">Description</p>
-                      <p className="text-sm text-muted-foreground">{selectedProduct.description}</p>
+                      <p className="text-sm text-muted-foreground whitespace-pre-line">{selectedProduct.description}</p>
                     </div>
                   )}
                   <div className="grid grid-cols-2 gap-4">
