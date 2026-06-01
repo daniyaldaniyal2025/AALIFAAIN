@@ -499,6 +499,8 @@ function HomeView({ products }: { products: Product[] }) {
   const { selectedCountry } = useAppStore()
   const { toast } = useToast()
 
+  const featuredProducts = useMemo(() => products.filter(p => p.featured && p.status === 'active').slice(0, 8), [products])
+
   const categories = useMemo(() => {
     const cats: { name: string; slug: string; description: string; count: number; comingSoon: boolean }[] = []
     const catMap = new Map<string, number>()
@@ -622,6 +624,41 @@ function HomeView({ products }: { products: Product[] }) {
           </motion.div>
         </div>
       </section>
+
+      {/* Featured Products Section */}
+      {featuredProducts.length > 0 && (
+        <section className="py-16 sm:py-20 bg-secondary/30">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6">
+            <motion.div {...fadeIn} viewport={{ once: true }} className="text-center mb-10">
+              <Badge variant="secondary" className="mb-4 px-4 py-1.5 text-sm font-medium">
+                <Star className="size-3.5 mr-1.5" /> Curated Selection
+              </Badge>
+              <h2 className="font-serif text-3xl sm:text-4xl font-bold mb-3">Featured Products</h2>
+              <p className="text-muted-foreground max-w-lg mx-auto">Hand-picked favorites just for you — our most loved products</p>
+            </motion.div>
+
+            <motion.div
+              variants={staggerContainer}
+              initial="initial"
+              whileInView="animate"
+              viewport={{ once: true }}
+              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6"
+            >
+              {featuredProducts.map(product => (
+                <motion.div key={product.id} variants={staggerItem}>
+                  <ProductCard product={product} />
+                </motion.div>
+              ))}
+            </motion.div>
+
+            <div className="mt-10 text-center">
+              <Button variant="outline" size="lg" onClick={() => setView({ view: 'products' })} className="gap-2">
+                View All Products <ArrowRight className="size-4" />
+              </Button>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Why Choose Us */}
       <section className="py-16 sm:py-20">
