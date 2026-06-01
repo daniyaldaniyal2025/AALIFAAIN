@@ -41,6 +41,7 @@ export async function POST(request: NextRequest) {
       email: user.email,
       image: user.image,
       role: user.role,
+      createdAt: user.createdAt.toISOString(),
     })
 
     const response = NextResponse.json({
@@ -51,6 +52,7 @@ export async function POST(request: NextRequest) {
         email: user.email,
         image: user.image,
         role: user.role,
+        createdAt: user.createdAt.toISOString(),
       },
     })
 

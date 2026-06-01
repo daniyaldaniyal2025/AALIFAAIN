@@ -1,62 +1,45 @@
+# Alifaain E-commerce - Work Log
+
 ---
 Task ID: 1
-Agent: Main Coordinator
-Task: Build Alifaain E-Commerce Website with Admin Dashboard
+Agent: Main Agent
+Task: Read current project files and understand authentication state
 
 Work Log:
-- Read uploaded files: logo (alifaain_logo) and product categories Excel (Morocco 19 products, Korea 23, Supplements 2, Clothing/Fragrances coming soon)
-- Set up Prisma schema with Category, Product, Order, OrderItem models
-- Pushed schema to database and seeded with all 44 products + sample orders
-- Built API routes: /api/products, /api/orders, /api/admin/stats, /api/seed
-- Created currency utility with 21 countries and exchange rates (SAR as base)
-- Created Zustand stores for cart and app state management
-- Built complete SPA with view-based navigation on single / route
-- Custom gold/amber luxury theme with CSS effects (glass, shimmer, glow, gradient-border, float)
-- Dark/light mode via next-themes
-- Country selector with automatic currency conversion
-- All views built: Home, Products, Product Detail, Cart, Checkout, Admin Dashboard, Admin Products, Admin Orders
-- Tested all features via browser automation and VLM analysis
+- Read prisma/schema.prisma - User, Account, Session, VerificationToken models already exist
+- Read src/app/page.tsx - SignInView, SignUpView, ProfileView, AdminGuard already exist (basic versions)
+- Read src/stores/auth-store.ts - Auth store with signIn, signUp, signOut, fetchSession already exists
+- Read src/lib/session.ts - Custom session token system already exists
+- Read src/lib/password.ts - Custom password hashing already exists
+- Read src/app/api/auth/* - All API routes already exist
 
 Stage Summary:
-- Complete e-commerce SPA with 44 products across 5 categories
-- Admin dashboard with stats, revenue chart, order management
-- 21 countries supported with automatic currency conversion
-- Dark/light mode working properly
-- Cart with persistent storage (localStorage via Zustand)
-- Framer Motion animations throughout
-- Responsive design (mobile-first)
+- Backend auth system was already in place from previous session
+- Frontend auth views existed but were basic/limited
+- Critical bug: seed route used bcrypt.hash but verifyPassword used custom hash (mismatch)
 
 ---
 Task ID: 2
-Agent: Main Coordinator
-Task: Add all product and category images using AI image generation
+Agent: Main Agent
+Task: Fix seed route and enhance authentication system
 
 Work Log:
-- Created image directory structure (categories, products/morocco, products/korea, supplements, hero)
-- Generated 50 AI images in parallel using z-ai image CLI tool:
-  - 1 hero banner image (1440x720)
-  - 5 category images (1024x1024): Morocco, Korea, Supplements, Clothing, Fragrances
-  - 19 Morocco product images (1024x1024)
-  - 23 Korea product images (1024x1024)
-  - 2 Supplements product images (1024x1024)
-- Created /api/update-images route to update database with image paths
-- Updated all 44 products and 5 categories in database with image paths
-- Updated frontend components to display real product images:
-  - Product cards (featured carousel) with hover zoom effect
-  - Product grid cards (shop page) with hover zoom effect
-  - Product detail view with large product image
-  - Cart items with product thumbnails
-  - Category cards with background image overlay
-  - Hero section with background banner image
-  - Admin products table with image column
-- Updated cart store addItem calls to pass product image
-- Verified all images display correctly via browser automation and VLM
+- Fixed seed route: replaced bcrypt.hash with hashPassword for consistency
+- Added bcrypt→custom hash migration for existing admin users
+- Added demo customer user (customer@alifaain.com / customer123)
+- Created /api/auth/profile route (GET and PUT) for profile management
+- Created /api/user/orders route for user order history
+- Added createdAt field to AuthUser interface and SessionUser type
+- Updated signin API to include createdAt in response and token
+- Enhanced SignInView with split layout, password toggle, remember me, admin hint
+- Enhanced SignUpView with split layout, password strength indicator, terms checkbox
+- Enhanced ProfileView with tabbed interface (Details, Password, Orders, Danger Zone)
+- Enhanced AdminGuard with inline admin login form and demo credentials hint
+- Fixed orders API response format handling in ProfileView
 
 Stage Summary:
-- 50 AI-generated images integrated into the e-commerce site
-- All 44 products now display real product images
-- All 5 category cards show category images with gradient overlay
-- Hero section enhanced with background beauty banner
-- Cart shows product thumbnails
-- Product detail shows large product images
-- Admin table includes product image column
+- All auth APIs working: signin, signup, signout, session, profile, orders
+- Admin credentials: admin@alifaain.com / admin123
+- Customer credentials: customer@alifaain.com / customer123
+- Lint passes with no errors
+- Dev server running without issues

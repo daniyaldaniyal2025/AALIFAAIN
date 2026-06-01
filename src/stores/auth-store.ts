@@ -6,6 +6,7 @@ export interface AuthUser {
   email: string
   image: string | null
   role: string
+  createdAt?: string
 }
 
 interface AuthStore {

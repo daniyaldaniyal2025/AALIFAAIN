@@ -6,6 +6,7 @@ export interface SessionUser {
   email: string
   image: string | null
   role: string
+  createdAt?: string
 }
 
 const SESSION_COOKIE = 'alifaain-session'
@@ -55,6 +56,7 @@ export function verifySessionToken(token: string): SessionUser | null {
       email: parsed.email,
       image: parsed.image || null,
       role: parsed.role,
+      createdAt: parsed.createdAt || undefined,
     }
   } catch {
     return null

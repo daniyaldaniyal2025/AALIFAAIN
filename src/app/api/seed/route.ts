@@ -6,7 +6,7 @@ export async function GET() {
     // Check if already seeded
     const count = await db.product.count()
     if (count > 0) {
-      // Still ensure admin user exists
+      // Ensure admin user exists with correct password hash
       const adminExists = await db.user.findUnique({ where: { email: 'admin@alifaain.com' } })
       if (!adminExists) {
         const hashedPassword = hashPassword('admin123')
@@ -18,7 +18,32 @@ export async function GET() {
             role: 'admin',
           },
         })
+      } else {
+        // Fix admin password if it was hashed with bcrypt (old bug)
+        // Custom hash format is: salt:hash (no $2b$ prefix)
+        if (adminExists.password.startsWith('$2b$') || adminExists.password.startsWith('$2a$')) {
+          const hashedPassword = hashPassword('admin123')
+          await db.user.update({
+            where: { id: adminExists.id },
+            data: { password: hashedPassword },
+          })
+        }
       }
+
+      // Also ensure a demo customer exists
+      const customerExists = await db.user.findUnique({ where: { email: 'customer@alifaain.com' } })
+      if (!customerExists) {
+        const hashedPassword = hashPassword('customer123')
+        await db.user.create({
+          data: {
+            name: 'Demo Customer',
+            email: 'customer@alifaain.com',
+            password: hashedPassword,
+            role: 'customer',
+          },
+        })
+      }
+
       return Response.json({ message: 'Database already seeded', count })
     }
 
@@ -197,13 +222,27 @@ export async function GET() {
     // Create admin user
     const adminExists = await db.user.findUnique({ where: { email: 'admin@alifaain.com' } })
     if (!adminExists) {
-      const hashedPassword = await bcrypt.hash('admin123', 12)
+      const hashedPassword = hashPassword('admin123')
       await db.user.create({
         data: {
           name: 'Admin',
           email: 'admin@alifaain.com',
           password: hashedPassword,
           role: 'admin',
+        },
+      })
+    }
+
+    // Create demo customer user
+    const customerExists = await db.user.findUnique({ where: { email: 'customer@alifaain.com' } })
+    if (!customerExists) {
+      const hashedPassword = hashPassword('customer123')
+      await db.user.create({
+        data: {
+          name: 'Demo Customer',
+          email: 'customer@alifaain.com',
+          password: hashedPassword,
+          role: 'customer',
         },
       })
     }
