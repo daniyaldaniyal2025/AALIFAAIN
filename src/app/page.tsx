@@ -782,9 +782,7 @@ function HomeView({ products }: { products: Product[] }) {
                   disabled={cat.comingSoon}
                 >
                   <div className={`relative bg-gradient-to-br ${getGradientForCategory(cat.slug)} p-6 sm:p-8 text-white overflow-hidden`}>
-                    {cat.slug !== 'clothing' && cat.slug !== 'fragrances' && (
-                      <img src={`/images/categories/${cat.slug}.png`} alt={cat.name} className="absolute inset-0 w-full h-full object-cover opacity-30 mix-blend-overlay" />
-                    )}
+                    <img src={`/images/categories/${cat.slug}.png`} alt={cat.name} className="absolute inset-0 w-full h-full object-cover opacity-30 mix-blend-overlay" />
                     <div className="absolute top-2 right-2 text-3xl opacity-30">{categoryIcons[cat.slug]}</div>
                     <span className="text-2xl mb-2 block">{categoryIcons[cat.slug]}</span>
                     <h3 className="font-serif font-bold text-lg mb-1">{cat.name}</h3>

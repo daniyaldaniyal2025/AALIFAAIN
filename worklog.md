@@ -53,3 +53,24 @@ Stage Summary:
 - All categories (including coming soon ones) are shown as scrollable pills
 - Active category is highlighted with primary color
 - Clean, modern e-commerce style navigation
+---
+Task ID: 2
+Agent: main
+Task: Add all images to the project
+
+Work Log:
+- Verified all image files already exist in /public/images/ (products, categories, banners, hero)
+- Fixed seed data category image paths from /categories/*.jpg to /images/categories/*.png
+- Added image paths to all 44 products in seed data (morocco: 19, korea: 23, supplements: 2)
+- Updated home view to show category background images for ALL categories (removed clothing/fragrances exclusion)
+- Deleted database and re-seeded with correct image paths
+- Verified via Prisma direct query: all 44 products have images, all 5 categories have correct images
+- Verified via API: Products: 44, With images: 44
+
+Stage Summary:
+- All product images are now properly linked in the database
+- All category images use correct paths (/images/categories/*.png)
+- Banner slider images already existed and work correctly
+- Hero banner image already existed and works correctly
+- Logo already existed at /alifaain-logo.jpg
+
