@@ -26,9 +26,9 @@ import {
   Plus, Minus, Trash2, ArrowLeft, Search, ChevronDown, Package, DollarSign,
   Clock, TrendingUp, Users, Mail, Instagram, Twitter, Facebook, MapPin, Phone,
   X, ShoppingBag, CheckCircle2, ArrowRight, Sparkles, Heart, Eye, Filter,
-  BarChart3, Boxes, ClipboardList, RefreshCw, Globe, ChevronRight, LogIn,
+  BarChart3, Boxes, ClipboardList, RefreshCw, Globe, ChevronRight, ChevronLeft, LogIn,
   LogOut, UserCircle, UserPlus, Lock, AlertCircle, Check,
-  EyeOff, Save, Calendar, Pencil, ToggleLeft, ToggleRight, ImagePlus
+  EyeOff, Save, Calendar, Pencil, ToggleLeft, ToggleRight, ImagePlus, Upload, ImageIcon
 } from 'lucide-react'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
@@ -54,10 +54,12 @@ interface Product {
   description: string | null
   price: number
   image: string | null
+  images: string[]
   categoryId: string
   featured: boolean
   stock: number
   status: string
+  createdAt: string
   category: Category
 }
 
@@ -964,11 +966,25 @@ function ProductDetailView({ products }: { products: Product[] }) {
   const { addItem } = useCartStore()
   const { toast } = useToast()
   const [quantity, setQuantity] = useState(1)
+  const [selectedImageIdx, setSelectedImageIdx] = useState(0)
 
   const product = useMemo(() => {
     const id = currentView.params?.id
     return products.find(p => p.id === id) || null
   }, [products, currentView.params])
+
+  // Build all images array: primary image first, then additional images
+  const allImages = useMemo(() => {
+    if (!product) return []
+    const imgs: string[] = []
+    if (product.image) imgs.push(product.image)
+    if (product.images && Array.isArray(product.images)) {
+      product.images.forEach((img: string) => {
+        if (img && !imgs.includes(img)) imgs.push(img)
+      })
+    }
+    return imgs
+  }, [product])
 
   const relatedProducts = useMemo(() => {
     if (!product) return []
@@ -998,23 +1014,80 @@ function ProductDetailView({ products }: { products: Product[] }) {
         </button>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-16">
-          {/* Image */}
-          <div className={`relative rounded-2xl overflow-hidden ${product.image ? '' : 'bg-gradient-to-br ' + getGradientForCategory(product.category.slug)} aspect-square flex items-center justify-center`}>
-            {product.image ? (
-              <img src={product.image} alt={product.name} className="w-full h-full object-cover" />
-            ) : (
-              <span className="text-8xl font-bold text-white/15 font-serif">{getProductInitials(product.name)}</span>
-            )}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent" />
-            <div className="absolute top-4 left-4 flex gap-2">
-              <Badge className="bg-white/20 text-white border-0">{product.category.name}</Badge>
-              {product.featured && <Badge className="bg-white/20 text-white border-0"><Star className="size-3 mr-1" />Featured</Badge>}
-            </div>
-            <div className="absolute bottom-4 right-4 animate-float">
-              <div className="size-16 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center">
-                <Heart className="size-6 text-white/60" />
+          {/* Image Gallery */}
+          <div className="space-y-3">
+            {/* Main Image */}
+            <div className={`relative rounded-2xl overflow-hidden ${allImages.length > 0 ? '' : 'bg-gradient-to-br ' + getGradientForCategory(product.category.slug)} aspect-square flex items-center justify-center group`}>
+              {allImages.length > 0 ? (
+                <>
+                  <AnimatePresence mode="wait">
+                    <motion.img
+                      key={selectedImageIdx}
+                      src={allImages[selectedImageIdx]}
+                      alt={`${product.name} - Image ${selectedImageIdx + 1}`}
+                      className="w-full h-full object-cover"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.2 }}
+                    />
+                  </AnimatePresence>
+                  {/* Navigation arrows */}
+                  {allImages.length > 1 && (
+                    <>
+                      <Button
+                        variant="secondary"
+                        size="icon"
+                        className="absolute left-3 top-1/2 -translate-y-1/2 size-9 rounded-full opacity-0 group-hover:opacity-100 transition-opacity bg-white/80 hover:bg-white dark:bg-black/50 dark:hover:bg-black/70"
+                        onClick={() => setSelectedImageIdx(selectedImageIdx > 0 ? selectedImageIdx - 1 : allImages.length - 1)}
+                      >
+                        <ChevronLeft className="size-4" />
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="icon"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 size-9 rounded-full opacity-0 group-hover:opacity-100 transition-opacity bg-white/80 hover:bg-white dark:bg-black/50 dark:hover:bg-black/70"
+                        onClick={() => setSelectedImageIdx(selectedImageIdx < allImages.length - 1 ? selectedImageIdx + 1 : 0)}
+                      >
+                        <ChevronRight className="size-4" />
+                      </Button>
+                      {/* Image counter */}
+                      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/50 backdrop-blur-sm text-white text-xs px-3 py-1 rounded-full">
+                        {selectedImageIdx + 1} / {allImages.length}
+                      </div>
+                    </>
+                  )}
+                </>
+              ) : (
+                <span className="text-8xl font-bold text-white/15 font-serif">{getProductInitials(product.name)}</span>
+              )}
+              <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent pointer-events-none" />
+              <div className="absolute top-4 left-4 flex gap-2 pointer-events-none">
+                <Badge className="bg-white/20 text-white border-0">{product.category.name}</Badge>
+                {product.featured && <Badge className="bg-white/20 text-white border-0"><Star className="size-3 mr-1" />Featured</Badge>}
+              </div>
+              <div className="absolute bottom-4 right-4 animate-float pointer-events-none">
+                <div className="size-16 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center">
+                  <Heart className="size-6 text-white/60" />
+                </div>
               </div>
             </div>
+            {/* Thumbnail Strip */}
+            {allImages.length > 1 && (
+              <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
+                {allImages.map((img, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => setSelectedImageIdx(idx)}
+                    className={`shrink-0 size-16 sm:size-20 rounded-lg overflow-hidden border-2 transition-all ${
+                      idx === selectedImageIdx ? 'border-primary ring-2 ring-primary/20' : 'border-transparent hover:border-primary/30'
+                    }`}
+                  >
+                    <img src={img} alt={`${product.name} thumbnail ${idx + 1}`} className="w-full h-full object-cover" />
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Details */}
@@ -1547,11 +1620,13 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
   const [formDescription, setFormDescription] = useState('')
   const [formPrice, setFormPrice] = useState('')
   const [formImage, setFormImage] = useState('')
+  const [formImages, setFormImages] = useState<string[]>([])
   const [formCategoryId, setFormCategoryId] = useState('')
   const [formStock, setFormStock] = useState('100')
   const [formFeatured, setFormFeatured] = useState(false)
   const [formStatus, setFormStatus] = useState('active')
   const [formError, setFormError] = useState('')
+  const [uploading, setUploading] = useState(false)
 
   // Fetch categories on mount
   useEffect(() => {
@@ -1592,6 +1667,7 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
     setFormDescription('')
     setFormPrice('')
     setFormImage('')
+    setFormImages([])
     setFormCategoryId('')
     setFormStock('100')
     setFormFeatured(false)
@@ -1613,6 +1689,7 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
     setFormDescription(product.description || '')
     setFormPrice(product.price.toString())
     setFormImage(product.image || '')
+    setFormImages(Array.isArray(product.images) ? product.images : [])
     setFormCategoryId(product.categoryId)
     setFormStock(product.stock.toString())
     setFormFeatured(product.featured)
@@ -1631,6 +1708,61 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
     setShowViewDialog(true)
   }
 
+  // Image upload handler
+  const handleImageUpload = async (files: FileList, isPrimary: boolean = false) => {
+    setUploading(true)
+    const uploadedUrls: string[] = []
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]
+      if (!file.type.startsWith('image/')) continue
+      if (file.size > 5 * 1024 * 1024) {
+        toast({ title: 'File too large', description: `${file.name} exceeds 5MB limit.`, variant: 'destructive' })
+        continue
+      }
+      const formData = new FormData()
+      formData.append('file', file)
+      try {
+        const res = await fetch('/api/upload', { method: 'POST', body: formData })
+        if (res.ok) {
+          const data = await res.json()
+          uploadedUrls.push(data.url)
+        } else {
+          const data = await res.json()
+          toast({ title: 'Upload failed', description: data.error || 'Failed to upload image', variant: 'destructive' })
+        }
+      } catch {
+        toast({ title: 'Upload failed', description: 'Network error', variant: 'destructive' })
+      }
+    }
+    if (uploadedUrls.length > 0) {
+      if (isPrimary) {
+        setFormImage(uploadedUrls[0])
+        // Also add to additional images if not already there
+        setFormImages(prev => {
+          const newImgs = [...prev]
+          uploadedUrls.forEach(url => { if (!newImgs.includes(url)) newImgs.push(url) })
+          return newImgs
+        })
+      } else {
+        setFormImages(prev => {
+          const newImgs = [...prev]
+          uploadedUrls.forEach(url => { if (!newImgs.includes(url)) newImgs.push(url) })
+          return newImgs
+        })
+      }
+      toast({ title: 'Images uploaded', description: `${uploadedUrls.length} image(s) uploaded successfully.` })
+    }
+    setUploading(false)
+  }
+
+  const removeFormImage = (index: number) => {
+    setFormImages(prev => prev.filter((_, i) => i !== index))
+  }
+
+  const setPrimaryFromImages = (url: string) => {
+    setFormImage(url)
+  }
+
   const handleAddProduct = async () => {
     setFormError('')
     if (!formName || !formPrice || !formCategoryId) {
@@ -1647,6 +1779,7 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
           description: formDescription,
           price: formPrice,
           image: formImage,
+          images: formImages,
           categoryId: formCategoryId,
           stock: formStock,
           featured: formFeatured,
@@ -1685,6 +1818,7 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
           description: formDescription,
           price: formPrice,
           image: formImage,
+          images: formImages,
           categoryId: formCategoryId,
           stock: formStock,
           featured: formFeatured,
@@ -1758,7 +1892,7 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
 
   // Product Form Component (shared for Add & Edit)
   const ProductForm = () => (
-    <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+    <div className="space-y-4 max-h-[65vh] overflow-y-auto pr-2">
       {formError && (
         <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
           <AlertCircle className="size-4 shrink-0" />
@@ -1794,18 +1928,107 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
           </SelectContent>
         </Select>
       </div>
-      <div className="space-y-2">
-        <Label htmlFor="form-image">Image URL</Label>
-        <div className="relative">
-          <ImagePlus className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-          <Input id="form-image" value={formImage} onChange={e => setFormImage(e.target.value)} placeholder="https://..." className="pl-9" />
+
+      {/* Primary Image Upload */}
+      <div className="space-y-3">
+        <Label>Primary Image</Label>
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <ImagePlus className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+            <Input value={formImage} onChange={e => setFormImage(e.target.value)} placeholder="Enter image URL..." className="pl-9" />
+          </div>
+          <label className="cursor-pointer">
+            <input
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={e => { if (e.target.files?.length) handleImageUpload(e.target.files, true) }}
+            />
+            <Button variant="outline" size="icon" className="size-10" disabled={uploading} asChild>
+              <span><Upload className="size-4" /></span>
+            </Button>
+          </label>
         </div>
         {formImage && (
-          <div className="size-20 rounded-lg border overflow-hidden mt-2">
-            <img src={formImage} alt="Preview" className="w-full h-full object-cover" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+          <div className="relative inline-block">
+            <div className="size-24 rounded-lg border overflow-hidden">
+              <img src={formImage} alt="Primary preview" className="w-full h-full object-cover" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+            </div>
+            <Badge className="absolute -top-2 -left-2 text-[9px] px-1.5 py-0" variant="default">Primary</Badge>
+            <button
+              onClick={() => setFormImage('')}
+              className="absolute -top-2 -right-2 size-5 rounded-full bg-destructive text-white flex items-center justify-center hover:bg-destructive/80 transition-colors"
+            >
+              <X className="size-3" />
+            </button>
           </div>
         )}
       </div>
+
+      {/* Additional Images Upload */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <Label>Additional Images ({formImages.length})</Label>
+          <label className="cursor-pointer">
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={e => { if (e.target.files?.length) handleImageUpload(e.target.files, false) }}
+            />
+            <Button variant="outline" size="sm" className="gap-1.5 text-xs h-7" disabled={uploading} asChild>
+              <span>
+                {uploading ? (
+                  <div className="size-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Upload className="size-3" />
+                )}
+                {uploading ? 'Uploading...' : 'Upload Images'}
+              </span>
+            </Button>
+          </label>
+        </div>
+        {formImages.length > 0 ? (
+          <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
+            {formImages.map((img, idx) => (
+              <div key={idx} className="relative group aspect-square rounded-lg border overflow-hidden bg-muted">
+                <img src={img} alt={`Product image ${idx + 1}`} className="w-full h-full object-cover" />
+                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100">
+                  <Button
+                    variant="secondary"
+                    size="icon"
+                    className="size-6 rounded-full"
+                    onClick={() => setPrimaryFromImages(img)}
+                    title="Set as primary"
+                  >
+                    <Star className="size-3" />
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="icon"
+                    className="size-6 rounded-full"
+                    onClick={() => removeFormImage(idx)}
+                    title="Remove"
+                  >
+                    <X className="size-3" />
+                  </Button>
+                </div>
+                {img === formImage && (
+                  <Badge className="absolute top-1 left-1 text-[8px] px-1 py-0">Primary</Badge>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="border-2 border-dashed rounded-lg p-6 text-center">
+            <ImageIcon className="size-8 text-muted-foreground mx-auto mb-2" />
+            <p className="text-sm text-muted-foreground">No additional images yet</p>
+            <p className="text-xs text-muted-foreground mt-1">Click &quot;Upload Images&quot; or drag and drop</p>
+          </div>
+        )}
+      </div>
+
       <div className="space-y-2">
         <Label htmlFor="form-status">Status</Label>
         <Select value={formStatus} onValueChange={setFormStatus}>
@@ -1822,6 +2045,16 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
       </div>
     </div>
   )
+
+  // Get all images for a product (primary + additional)
+  const getProductImages = (p: Product): string[] => {
+    const imgs: string[] = []
+    if (p.image) imgs.push(p.image)
+    if (Array.isArray(p.images)) {
+      p.images.forEach((img: string) => { if (img && !imgs.includes(img)) imgs.push(img) })
+    }
+    return imgs
+  }
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
@@ -1871,6 +2104,7 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
                     <TableHead>Category</TableHead>
                     <TableHead>Price</TableHead>
                     <TableHead>Stock</TableHead>
+                    <TableHead>Images</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Featured</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
@@ -1879,70 +2113,90 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
                 <TableBody>
                   {filtered.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
+                      <TableCell colSpan={9} className="text-center py-12 text-muted-foreground">
                         {search || catFilter !== 'all' ? 'No products match your filters' : 'No products yet. Add your first product!'}
                       </TableCell>
                     </TableRow>
                   ) : (
-                    filtered.map(p => (
-                      <TableRow key={p.id} className="group">
-                        <TableCell>
-                          <div className="size-10 rounded-md overflow-hidden bg-gradient-to-br from-primary/10 to-amber-500/10 shrink-0">
-                            {p.image ? (
-                              <img src={p.image} alt={p.name} className="w-full h-full object-cover" />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center">
-                                <span className="text-[8px] font-bold text-primary/40">{getProductInitials(p.name)}</span>
-                              </div>
+                    filtered.map(p => {
+                      const allImgs = getProductImages(p)
+                      return (
+                        <TableRow key={p.id} className="group">
+                          <TableCell>
+                            <div className="size-10 rounded-md overflow-hidden bg-gradient-to-br from-primary/10 to-amber-500/10 shrink-0">
+                              {p.image ? (
+                                <img src={p.image} alt={p.name} className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center">
+                                  <span className="text-[8px] font-bold text-primary/40">{getProductInitials(p.name)}</span>
+                                </div>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <button onClick={() => openViewDialog(p)} className="font-medium text-sm hover:text-primary transition-colors text-left max-w-[200px] truncate block">
+                              {p.name}
+                            </button>
+                            {p.description && (
+                              <p className="text-xs text-muted-foreground truncate max-w-[200px]">{p.description}</p>
                             )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <button onClick={() => openViewDialog(p)} className="font-medium text-sm hover:text-primary transition-colors text-left max-w-[200px] truncate block">
-                            {p.name}
-                          </button>
-                          {p.description && (
-                            <p className="text-xs text-muted-foreground truncate max-w-[200px]">{p.description}</p>
-                          )}
-                        </TableCell>
-                        <TableCell><Badge variant="secondary" className="text-xs">{p.category.name}</Badge></TableCell>
-                        <TableCell className="font-semibold">{formatPrice(p.price, selectedCountry)}</TableCell>
-                        <TableCell>
-                          <span className={`text-sm ${p.stock < 10 ? 'text-destructive font-semibold' : p.stock < 30 ? 'text-amber-600 font-medium' : ''}`}>
-                            {p.stock}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <button onClick={() => toggleProductStatus(p)} className="focus:outline-none" title={`Click to ${p.status === 'active' ? 'deactivate' : 'activate'}`}>
-                            <Badge variant={p.status === 'active' ? 'default' : 'secondary'} className="text-xs cursor-pointer hover:opacity-80 transition-opacity">
-                              {p.status}
-                            </Badge>
-                          </button>
-                        </TableCell>
-                        <TableCell>
-                          <button onClick={() => toggleFeatured(p)} className="focus:outline-none" title={`Click to ${p.featured ? 'unfeature' : 'feature'}`}>
-                            {p.featured ? (
-                              <Star className="size-4 text-amber-500 fill-amber-500" />
-                            ) : (
-                              <Star className="size-4 text-muted-foreground/40" />
-                            )}
-                          </button>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center justify-end gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
-                            <Button variant="ghost" size="icon" className="size-8" onClick={() => openViewDialog(p)} title="View">
-                              <Eye className="size-3.5" />
-                            </Button>
-                            <Button variant="ghost" size="icon" className="size-8" onClick={() => openEditDialog(p)} title="Edit">
-                              <Pencil className="size-3.5" />
-                            </Button>
-                            <Button variant="ghost" size="icon" className="size-8 text-destructive hover:text-destructive" onClick={() => openDeleteDialog(p)} title="Delete">
-                              <Trash2 className="size-3.5" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))
+                          </TableCell>
+                          <TableCell><Badge variant="secondary" className="text-xs">{p.category.name}</Badge></TableCell>
+                          <TableCell className="font-semibold">{formatPrice(p.price, selectedCountry)}</TableCell>
+                          <TableCell>
+                            <span className={`text-sm ${p.stock < 10 ? 'text-destructive font-semibold' : p.stock < 30 ? 'text-amber-600 font-medium' : ''}`}>
+                              {p.stock}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex -space-x-1">
+                              {allImgs.slice(0, 3).map((img, idx) => (
+                                <div key={idx} className="size-6 rounded border-2 border-background overflow-hidden">
+                                  <img src={img} alt="" className="w-full h-full object-cover" />
+                                </div>
+                              ))}
+                              {allImgs.length > 3 && (
+                                <div className="size-6 rounded border-2 border-background bg-muted flex items-center justify-center">
+                                  <span className="text-[8px] font-medium text-muted-foreground">+{allImgs.length - 3}</span>
+                                </div>
+                              )}
+                              {allImgs.length === 0 && (
+                                <span className="text-xs text-muted-foreground">0</span>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <button onClick={() => toggleProductStatus(p)} className="focus:outline-none" title={`Click to ${p.status === 'active' ? 'deactivate' : 'activate'}`}>
+                              <Badge variant={p.status === 'active' ? 'default' : 'secondary'} className="text-xs cursor-pointer hover:opacity-80 transition-opacity">
+                                {p.status}
+                              </Badge>
+                            </button>
+                          </TableCell>
+                          <TableCell>
+                            <button onClick={() => toggleFeatured(p)} className="focus:outline-none" title={`Click to ${p.featured ? 'unfeature' : 'feature'}`}>
+                              {p.featured ? (
+                                <Star className="size-4 text-amber-500 fill-amber-500" />
+                              ) : (
+                                <Star className="size-4 text-muted-foreground/40" />
+                              )}
+                            </button>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center justify-end gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
+                              <Button variant="ghost" size="icon" className="size-8" onClick={() => openViewDialog(p)} title="View">
+                                <Eye className="size-3.5" />
+                              </Button>
+                              <Button variant="ghost" size="icon" className="size-8" onClick={() => openEditDialog(p)} title="Edit">
+                                <Pencil className="size-3.5" />
+                              </Button>
+                              <Button variant="ghost" size="icon" className="size-8 text-destructive hover:text-destructive" onClick={() => openDeleteDialog(p)} title="Delete">
+                                <Trash2 className="size-3.5" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })
                   )}
                 </TableBody>
               </Table>
@@ -1952,17 +2206,17 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
 
         {/* Add Product Dialog */}
         <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-          <DialogContent className="sm:max-w-lg">
+          <DialogContent className="sm:max-w-xl">
             <DialogHeader>
               <DialogTitle className="font-serif text-xl flex items-center gap-2">
                 <Plus className="size-5 text-primary" /> Add New Product
               </DialogTitle>
-              <DialogDescription>Create a new product for your store.</DialogDescription>
+              <DialogDescription>Create a new product for your store. Upload images or provide URLs.</DialogDescription>
             </DialogHeader>
             <ProductForm />
             <DialogFooter className="gap-2">
               <Button variant="outline" onClick={() => setShowAddDialog(false)}>Cancel</Button>
-              <Button onClick={handleAddProduct} disabled={saving}>
+              <Button onClick={handleAddProduct} disabled={saving || uploading}>
                 {saving ? <div className="size-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <><Plus className="size-4 mr-1" /> Add Product</>}
               </Button>
             </DialogFooter>
@@ -1971,17 +2225,17 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
 
         {/* Edit Product Dialog */}
         <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
-          <DialogContent className="sm:max-w-lg">
+          <DialogContent className="sm:max-w-xl">
             <DialogHeader>
               <DialogTitle className="font-serif text-xl flex items-center gap-2">
                 <Pencil className="size-5 text-primary" /> Edit Product
               </DialogTitle>
-              <DialogDescription>Update product details.</DialogDescription>
+              <DialogDescription>Update product details and images.</DialogDescription>
             </DialogHeader>
             <ProductForm />
             <DialogFooter className="gap-2">
               <Button variant="outline" onClick={() => { setShowEditDialog(false); resetForm() }}>Cancel</Button>
-              <Button onClick={handleUpdateProduct} disabled={saving}>
+              <Button onClick={handleUpdateProduct} disabled={saving || uploading}>
                 {saving ? <div className="size-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <><Save className="size-4 mr-1" /> Save Changes</>}
               </Button>
             </DialogFooter>
@@ -2028,69 +2282,83 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
 
         {/* View Product Dialog */}
         <Dialog open={showViewDialog} onOpenChange={setShowViewDialog}>
-          <DialogContent className="sm:max-w-lg">
+          <DialogContent className="sm:max-w-xl">
             <DialogHeader>
               <DialogTitle className="font-serif text-xl flex items-center gap-2">
                 <Eye className="size-5 text-primary" /> Product Details
               </DialogTitle>
               <DialogDescription>Full product information.</DialogDescription>
             </DialogHeader>
-            {selectedProduct && (
-              <div className="space-y-4">
-                <div className="flex gap-4">
-                  <div className="size-28 rounded-xl overflow-hidden bg-gradient-to-br from-primary/10 to-amber-500/10 shrink-0">
-                    {selectedProduct.image ? (
-                      <img src={selectedProduct.image} alt={selectedProduct.name} className="w-full h-full object-cover" />
-                    ) : (
-                      <div className={`w-full h-full bg-gradient-to-br ${getGradientForCategory(selectedProduct.category.slug)} flex items-center justify-center`}>
-                        <span className="text-2xl font-bold text-white/30 font-serif">{getProductInitials(selectedProduct.name)}</span>
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-serif font-bold text-lg">{selectedProduct.name}</h3>
-                    <Badge variant="secondary" className="text-xs mt-1">{selectedProduct.category.name}</Badge>
-                    <div className="flex items-center gap-2 mt-2">
-                      <Badge variant={selectedProduct.status === 'active' ? 'default' : 'secondary'} className="text-xs">{selectedProduct.status}</Badge>
-                      {selectedProduct.featured && (
-                        <Badge className="text-xs bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border-0">
-                          <Star className="size-3 mr-1 fill-amber-500 text-amber-500" /> Featured
-                        </Badge>
+            {selectedProduct && (() => {
+              const viewImages = getProductImages(selectedProduct)
+              return (
+                <div className="space-y-4">
+                  {/* Image Gallery */}
+                  {viewImages.length > 0 && (
+                    <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin">
+                      {viewImages.map((img, idx) => (
+                        <div key={idx} className="shrink-0 size-20 rounded-lg overflow-hidden border bg-muted">
+                          <img src={img} alt={`${selectedProduct.name} ${idx + 1}`} className="w-full h-full object-cover" />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex gap-4">
+                    <div className="size-28 rounded-xl overflow-hidden bg-gradient-to-br from-primary/10 to-amber-500/10 shrink-0">
+                      {selectedProduct.image ? (
+                        <img src={selectedProduct.image} alt={selectedProduct.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className={`w-full h-full bg-gradient-to-br ${getGradientForCategory(selectedProduct.category.slug)} flex items-center justify-center`}>
+                          <span className="text-2xl font-bold text-white/30 font-serif">{getProductInitials(selectedProduct.name)}</span>
+                        </div>
                       )}
                     </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-serif font-bold text-lg">{selectedProduct.name}</h3>
+                      <Badge variant="secondary" className="text-xs mt-1">{selectedProduct.category.name}</Badge>
+                      <div className="flex items-center gap-2 mt-2">
+                        <Badge variant={selectedProduct.status === 'active' ? 'default' : 'secondary'} className="text-xs">{selectedProduct.status}</Badge>
+                        {selectedProduct.featured && (
+                          <Badge className="text-xs bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border-0">
+                            <Star className="size-3 mr-1 fill-amber-500 text-amber-500" /> Featured
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">{viewImages.length} image{viewImages.length !== 1 ? 's' : ''}</p>
+                    </div>
+                  </div>
+                  {selectedProduct.description && (
+                    <div>
+                      <p className="text-sm font-medium mb-1">Description</p>
+                      <p className="text-sm text-muted-foreground">{selectedProduct.description}</p>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-4">
+                    <Card>
+                      <CardContent className="p-3 text-center">
+                        <p className="text-xs text-muted-foreground">Price</p>
+                        <p className="font-bold text-primary">{formatPrice(selectedProduct.price, selectedCountry)}</p>
+                        <p className="text-[10px] text-muted-foreground">{selectedProduct.price} SAR</p>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="p-3 text-center">
+                        <p className="text-xs text-muted-foreground">Stock</p>
+                        <p className={`font-bold ${selectedProduct.stock < 10 ? 'text-destructive' : selectedProduct.stock < 30 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                          {selectedProduct.stock} units
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">{selectedProduct.stock < 10 ? 'Low stock!' : 'In stock'}</p>
+                      </CardContent>
+                    </Card>
+                  </div>
+                  <div className="text-xs text-muted-foreground space-y-1">
+                    <p>Slug: <span className="font-mono">{selectedProduct.slug}</span></p>
+                    <p>ID: <span className="font-mono">{selectedProduct.id}</span></p>
+                    <p>Created: {new Date(selectedProduct.createdAt).toLocaleDateString()}</p>
                   </div>
                 </div>
-                {selectedProduct.description && (
-                  <div>
-                    <p className="text-sm font-medium mb-1">Description</p>
-                    <p className="text-sm text-muted-foreground">{selectedProduct.description}</p>
-                  </div>
-                )}
-                <div className="grid grid-cols-2 gap-4">
-                  <Card>
-                    <CardContent className="p-3 text-center">
-                      <p className="text-xs text-muted-foreground">Price</p>
-                      <p className="font-bold text-primary">{formatPrice(selectedProduct.price, selectedCountry)}</p>
-                      <p className="text-[10px] text-muted-foreground">{selectedProduct.price} SAR</p>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardContent className="p-3 text-center">
-                      <p className="text-xs text-muted-foreground">Stock</p>
-                      <p className={`font-bold ${selectedProduct.stock < 10 ? 'text-destructive' : selectedProduct.stock < 30 ? 'text-amber-600' : 'text-emerald-600'}`}>
-                        {selectedProduct.stock} units
-                      </p>
-                      <p className="text-[10px] text-muted-foreground">{selectedProduct.stock < 10 ? 'Low stock!' : 'In stock'}</p>
-                    </CardContent>
-                  </Card>
-                </div>
-                <div className="text-xs text-muted-foreground space-y-1">
-                  <p>Slug: <span className="font-mono">{selectedProduct.slug}</span></p>
-                  <p>ID: <span className="font-mono">{selectedProduct.id}</span></p>
-                  <p>Created: {new Date(selectedProduct.createdAt).toLocaleDateString()}</p>
-                </div>
-              </div>
-            )}
+              )
+            })()}
             <DialogFooter className="gap-2">
               <Button variant="outline" onClick={() => { setShowViewDialog(false); if (selectedProduct) openEditDialog(selectedProduct) }}>
                 <Pencil className="size-4 mr-1" /> Edit

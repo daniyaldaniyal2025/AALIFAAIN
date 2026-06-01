@@ -26,6 +26,7 @@ model Product {
   description String?
   price       Float
   image       String?
+  images      String?   @default("[]")
   categoryId  String
   featured    Boolean   @default(false)
   stock       Int       @default(100)

@@ -6,7 +6,12 @@ export async function GET() {
       include: { category: true },
       orderBy: { createdAt: 'desc' },
     })
-    return Response.json(products)
+    // Parse images JSON for each product
+    const parsed = products.map(p => ({
+      ...p,
+      images: p.images ? JSON.parse(p.images) : [],
+    }))
+    return Response.json(parsed)
   } catch (error) {
     return Response.json({ error: 'Failed to fetch products' }, { status: 500 })
   }
@@ -15,7 +20,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    const { name, description, price, image, categoryId, featured, stock, status } = body
+    const { name, description, price, image, images, categoryId, featured, stock, status } = body
 
     if (!name || !price || !categoryId) {
       return Response.json({ error: 'Name, price, and category are required' }, { status: 400 })
@@ -29,13 +34,19 @@ export async function POST(request: Request) {
       return Response.json({ error: 'A product with a similar name already exists' }, { status: 409 })
     }
 
+    // Serialize images array to JSON string
+    const imagesJson = Array.isArray(images) ? JSON.stringify(images) : '[]'
+    // Use first image as primary if no primary image set
+    const primaryImage = image || (Array.isArray(images) && images.length > 0 ? images[0] : null)
+
     const product = await db.product.create({
       data: {
         name,
         slug,
         description: description || null,
         price: parseFloat(price),
-        image: image || null,
+        image: primaryImage || null,
+        images: imagesJson,
         categoryId,
         featured: featured || false,
         stock: stock ? parseInt(stock) : 100,
@@ -44,7 +55,8 @@ export async function POST(request: Request) {
       include: { category: true },
     })
 
-    return Response.json(product, { status: 201 })
+    // Return with parsed images
+    return Response.json({ ...product, images: JSON.parse(product.images || '[]') }, { status: 201 })
   } catch (error) {
     console.error('Create product error:', error)
     return Response.json({ error: 'Failed to create product' }, { status: 500 })

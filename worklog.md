@@ -1,69 +1,34 @@
-# Alifaain E-commerce - Work Log
-
 ---
 Task ID: 1
 Agent: Main Agent
-Task: Read current project files and understand authentication state
+Task: Add product image upload and multiple images support in admin dashboard with customer-facing reflection
 
 Work Log:
-- Read prisma/schema.prisma - User, Account, Session, VerificationToken models already exist
-- Read src/app/page.tsx - SignInView, SignUpView, ProfileView, AdminGuard already exist (basic versions)
-- Read src/stores/auth-store.ts - Auth store with signIn, signUp, signOut, fetchSession already exists
-- Read src/lib/session.ts - Custom session token system already exists
-- Read src/lib/password.ts - Custom password hashing already exists
-- Read src/app/api/auth/* - All API routes already exist
+- Read current project state: Prisma schema, API routes, page.tsx (AdminProducts, ProductDetailView, ProductCard)
+- Updated Prisma schema to add `images` field (String, default "[]") to Product model for storing JSON array of image URLs
+- Ran `bun run db:push` to sync schema changes
+- Created `/api/upload/route.ts` - file upload API that accepts images (JPEG, PNG, WebP, GIF), max 5MB, saves to `public/uploads/products/`
+- Updated `/api/products/route.ts` - GET now parses `images` JSON field to array; POST now accepts `images` array and serializes to JSON
+- Updated `/api/products/[id]/route.ts` - GET, PUT, DELETE now support `images` field with proper JSON parsing/serialization
+- Updated Product interface in page.tsx to include `images: string[]` and `createdAt: string`
+- Added ChevronLeft, Upload, ImageIcon to lucide-react imports
+- Enhanced ProductDetailView with image gallery: left/right navigation arrows, image counter, thumbnail strip for multiple images
+- Completely rewrote AdminProducts component with:
+  - `formImages` state for managing multiple image URLs
+  - `uploading` state for upload progress indication
+  - `handleImageUpload()` - uploads files to /api/upload, supports single primary and multiple additional images
+  - `removeFormImage()` - removes image from additional images list
+  - `setPrimaryFromImages()` - sets any additional image as primary
+  - ProductForm with: Primary Image URL + Upload button, Additional Images section with grid preview, hover actions (Set as Primary / Remove), empty state placeholder
+  - Table now shows "Images" column with stacked thumbnail previews
+  - View dialog shows image gallery strip + image count
+  - Add/Edit dialogs widened to `sm:max-w-xl` for better image management UX
+  - All CRUD operations (add/update) now send `images` array alongside `image` primary
+- Verified: lint passes, dev server running, API returns `images: []` for existing products, upload API rejects non-images
 
 Stage Summary:
-- Backend auth system was already in place from previous session
-- Frontend auth views existed but were basic/limited
-- Critical bug: seed route used bcrypt.hash but verifyPassword used custom hash (mismatch)
-
----
-Task ID: 2
-Agent: Main Agent
-Task: Fix seed route and enhance authentication system
-
-Work Log:
-- Fixed seed route: replaced bcrypt.hash with hashPassword for consistency
-- Added bcrypt→custom hash migration for existing admin users
-- Added demo customer user (customer@alifaain.com / customer123)
-- Created /api/auth/profile route (GET and PUT) for profile management
-- Created /api/user/orders route for user order history
-- Added createdAt field to AuthUser interface and SessionUser type
-- Updated signin API to include createdAt in response and token
-- Enhanced SignInView with split layout, password toggle, remember me, admin hint
-- Enhanced SignUpView with split layout, password strength indicator, terms checkbox
-- Enhanced ProfileView with tabbed interface (Details, Password, Orders, Danger Zone)
-- Enhanced AdminGuard with inline admin login form and demo credentials hint
-- Fixed orders API response format handling in ProfileView
-
-Stage Summary:
-- All auth APIs working: signin, signup, signout, session, profile, orders
-- Admin credentials: admin@alifaain.com / admin123
-- Customer credentials: customer@alifaain.com / customer123
-- Lint passes with no errors
-- Dev server running without issues
-
----
-Task ID: 3
-Agent: Main Agent
-Task: Add full product CRUD in admin dashboard with customer reflection
-
-Work Log:
-- Created /api/products/[id] route with GET, PUT, DELETE handlers
-- Updated /api/products route to add POST handler for creating products
-- Created /api/categories route for fetching categories with product counts
-- Replaced basic AdminProducts with full CRUD version
-- Added Add Product dialog with full form
-- Added Edit Product dialog with pre-filled form
-- Added Delete Product dialog with confirmation
-- Added View Product dialog with full details
-- Added quick toggle for product status (active/inactive)
-- Added quick toggle for featured status
-- Added refreshProducts callback in main page to sync customer views
-- All CRUD APIs tested and verified working
-
-Stage Summary:
-- Full product CRUD working in admin dashboard
-- Changes reflect immediately for customer views
-- Categories API with product counts
+- Products now support multiple images stored as JSON array in `images` field
+- Admin can upload images via file picker or provide URLs
+- Primary image + additional images with set-as-primary and remove actions
+- Customer product detail view shows image gallery with navigation and thumbnails
+- All changes reflect on customer side automatically (same API data source)
