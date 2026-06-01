@@ -31,7 +31,7 @@ import {
   LogOut, UserCircle, UserPlus, Lock, AlertCircle, Check,
   EyeOff, Save, Calendar, Pencil, ToggleLeft, ToggleRight, ImagePlus, Upload, ImageIcon,
   Info, MessageSquare, Send, Award, Target, Leaf, Handshake, Building2,
-  Wallet, Banknote, Smartphone, Receipt, CircleDollarSign, RotateCcw, Tag, FolderOpen
+  Wallet, Banknote, Smartphone, Receipt, CircleDollarSign, RotateCcw, Tag, FolderOpen, UsersRound, Shield
 } from 'lucide-react'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
@@ -105,6 +105,43 @@ interface AdminStats {
   paymentMethodStats: { method: string; count: number; total: number }[]
   paidRevenue: number
   pendingPayments: number
+}
+
+// ─── Permission System ─────────────────────────────────────────────────────
+
+interface PermissionSet {
+  products?: { view?: boolean; add?: boolean; edit?: boolean; delete?: boolean }
+  categories?: { view?: boolean; add?: boolean; edit?: boolean; delete?: boolean }
+  orders?: { view?: boolean; edit?: boolean; delete?: boolean }
+  staff?: { view?: boolean; add?: boolean; edit?: boolean; delete?: boolean }
+}
+
+interface StaffMember {
+  id: string
+  name: string
+  email: string
+  image: string | null
+  role: string
+  adminRole: string
+  permissions: string
+  createdAt: string
+}
+
+function parsePermissions(permStr?: string): PermissionSet {
+  try {
+    return permStr ? JSON.parse(permStr) : {}
+  } catch {
+    return {}
+  }
+}
+
+function hasPermission(permStr: string | undefined, section: string, action: string): boolean {
+  const perms = parsePermissions(permStr)
+  return (perms as Record<string, Record<string, boolean>>)?.[section]?.[action] === true
+}
+
+function isSuperAdmin(adminRole?: string): boolean {
+  return adminRole === 'super_admin'
 }
 
 // ─── Animation Variants ─────────────────────────────────────────────────────
@@ -2603,6 +2640,7 @@ function CheckoutView() {
 function AdminDashboard() {
   const { setView } = useAppStore()
   const { selectedCountry } = useAppStore()
+  const { user } = useAuthStore()
   const [stats, setStats] = useState<AdminStats | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -2659,16 +2697,27 @@ function AdminDashboard() {
             <h1 className="font-serif text-3xl font-bold">Admin Dashboard</h1>
             <p className="text-muted-foreground">Overview of your store performance</p>
           </div>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => setView({ view: 'admin-products' })}>
-              <Boxes className="size-4 mr-1" /> Products
-            </Button>
-            <Button variant="outline" onClick={() => setView({ view: 'admin-categories' })}>
-              <Tag className="size-4 mr-1" /> Categories
-            </Button>
-            <Button variant="outline" onClick={() => setView({ view: 'admin-orders' })}>
-              <ClipboardList className="size-4 mr-1" /> Orders
-            </Button>
+          <div className="flex gap-2 flex-wrap">
+            {hasPermission(user?.permissions, 'products', 'view') && (
+              <Button variant="outline" onClick={() => setView({ view: 'admin-products' })}>
+                <Boxes className="size-4 mr-1" /> Products
+              </Button>
+            )}
+            {hasPermission(user?.permissions, 'categories', 'view') && (
+              <Button variant="outline" onClick={() => setView({ view: 'admin-categories' })}>
+                <Tag className="size-4 mr-1" /> Categories
+              </Button>
+            )}
+            {hasPermission(user?.permissions, 'orders', 'view') && (
+              <Button variant="outline" onClick={() => setView({ view: 'admin-orders' })}>
+                <ClipboardList className="size-4 mr-1" /> Orders
+              </Button>
+            )}
+            {isSuperAdmin(user?.adminRole) && (
+              <Button variant="outline" onClick={() => setView({ view: 'admin-staff' })}>
+                <UsersRound className="size-4 mr-1" /> Staff
+              </Button>
+            )}
           </div>
         </div>
 
@@ -2851,7 +2900,11 @@ interface CategoryOption {
 
 function AdminProducts({ products: initialProducts, onProductsChange }: { products: Product[]; onProductsChange?: () => void }) {
   const { selectedCountry } = useAppStore()
+  const { user } = useAuthStore()
   const { toast } = useToast()
+  const canAdd = isSuperAdmin(user?.adminRole) || hasPermission(user?.permissions, 'products', 'add')
+  const canEdit = isSuperAdmin(user?.adminRole) || hasPermission(user?.permissions, 'products', 'edit')
+  const canDelete = isSuperAdmin(user?.adminRole) || hasPermission(user?.permissions, 'products', 'delete')
   const [products, setProducts] = useState<Product[]>(initialProducts)
   const [categories, setCategories] = useState<CategoryOption[]>([])
   const [search, setSearch] = useState('')
@@ -3325,9 +3378,11 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
             <Button variant="outline" onClick={() => useAppStore.getState().setView({ view: 'admin' })}>
               <ArrowLeft className="size-4 mr-1" /> Dashboard
             </Button>
-            <Button onClick={openAddDialog}>
-              <Plus className="size-4 mr-1" /> Add Product
-            </Button>
+            {canAdd && (
+              <Button onClick={openAddDialog}>
+                <Plus className="size-4 mr-1" /> Add Product
+              </Button>
+            )}
           </div>
         </div>
 
@@ -3443,12 +3498,16 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
                               <Button variant="ghost" size="icon" className="size-8" onClick={() => openViewDialog(p)} title="View">
                                 <Eye className="size-3.5" />
                               </Button>
-                              <Button variant="ghost" size="icon" className="size-8" onClick={() => openEditDialog(p)} title="Edit">
-                                <Pencil className="size-3.5" />
-                              </Button>
-                              <Button variant="ghost" size="icon" className="size-8 text-destructive hover:text-destructive" onClick={() => openDeleteDialog(p)} title="Delete">
-                                <Trash2 className="size-3.5" />
-                              </Button>
+                              {canEdit && (
+                                <Button variant="ghost" size="icon" className="size-8" onClick={() => openEditDialog(p)} title="Edit">
+                                  <Pencil className="size-3.5" />
+                                </Button>
+                              )}
+                              {canDelete && (
+                                <Button variant="ghost" size="icon" className="size-8 text-destructive hover:text-destructive" onClick={() => openDeleteDialog(p)} title="Delete">
+                                  <Trash2 className="size-3.5" />
+                                </Button>
+                              )}
                             </div>
                           </TableCell>
                         </TableRow>
@@ -3617,9 +3676,11 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
               )
             })()}
             <DialogFooter className="gap-2">
-              <Button variant="outline" onClick={() => { setShowViewDialog(false); if (selectedProduct) openEditDialog(selectedProduct) }}>
-                <Pencil className="size-4 mr-1" /> Edit
-              </Button>
+              {canEdit && (
+                <Button variant="outline" onClick={() => { setShowViewDialog(false); if (selectedProduct) openEditDialog(selectedProduct) }}>
+                  <Pencil className="size-4 mr-1" /> Edit
+                </Button>
+              )}
               <Button onClick={() => setShowViewDialog(false)}>Close</Button>
             </DialogFooter>
           </DialogContent>
@@ -3633,7 +3694,10 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
 
 function AdminOrders() {
   const { selectedCountry } = useAppStore()
+  const { user } = useAuthStore()
   const { toast } = useToast()
+  const canEdit = isSuperAdmin(user?.adminRole) || hasPermission(user?.permissions, 'orders', 'edit')
+  const canDelete = isSuperAdmin(user?.adminRole) || hasPermission(user?.permissions, 'orders', 'delete')
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState('all')
@@ -3879,47 +3943,53 @@ function AdminOrders() {
                           </div>
 
                           {/* Actions */}
-                          <div className="flex flex-wrap gap-2 pt-2 border-t">
-                            {/* Order Status Actions */}
-                            <span className="text-xs text-muted-foreground self-center mr-2">Order:</span>
-                            {['confirmed', 'processing', 'shipped', 'delivered', 'cancelled'].map(s => (
-                              <Button
-                                key={s}
-                                variant={order.status === s ? 'default' : 'outline'}
-                                size="sm"
-                                className="h-7 text-xs"
-                                onClick={() => updateOrderStatus(order.id, s)}
-                                disabled={order.status === s}
-                              >
-                                {s}
-                              </Button>
-                            ))}
+                          {canEdit ? (
+                            <div className="flex flex-wrap gap-2 pt-2 border-t">
+                              {/* Order Status Actions */}
+                              <span className="text-xs text-muted-foreground self-center mr-2">Order:</span>
+                              {['confirmed', 'processing', 'shipped', 'delivered', 'cancelled'].map(s => (
+                                <Button
+                                  key={s}
+                                  variant={order.status === s ? 'default' : 'outline'}
+                                  size="sm"
+                                  className="h-7 text-xs"
+                                  onClick={() => updateOrderStatus(order.id, s)}
+                                  disabled={order.status === s}
+                                >
+                                  {s}
+                                </Button>
+                              ))}
 
-                            <Separator orientation="vertical" className="h-7 mx-2" />
+                              <Separator orientation="vertical" className="h-7 mx-2" />
 
-                            {/* Payment Status Actions */}
-                            <span className="text-xs text-muted-foreground self-center mr-2">Payment:</span>
-                            {order.paymentStatus !== 'paid' && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-7 text-xs text-emerald-600 hover:text-emerald-700"
-                                onClick={() => updatePaymentStatus(order.id, 'paid')}
-                              >
-                                <Check className="size-3 mr-1" /> Mark Paid
-                              </Button>
-                            )}
-                            {order.paymentStatus === 'paid' && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-7 text-xs text-purple-600 hover:text-purple-700"
-                                onClick={() => handleRefund(order.id)}
-                              >
-                                <RotateCcw className="size-3 mr-1" /> Refund
-                              </Button>
-                            )}
-                          </div>
+                              {/* Payment Status Actions */}
+                              <span className="text-xs text-muted-foreground self-center mr-2">Payment:</span>
+                              {order.paymentStatus !== 'paid' && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 text-xs text-emerald-600 hover:text-emerald-700"
+                                  onClick={() => updatePaymentStatus(order.id, 'paid')}
+                                >
+                                  <Check className="size-3 mr-1" /> Mark Paid
+                                </Button>
+                              )}
+                              {order.paymentStatus === 'paid' && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 text-xs text-purple-600 hover:text-purple-700"
+                                  onClick={() => handleRefund(order.id)}
+                                >
+                                  <RotateCcw className="size-3 mr-1" /> Refund
+                                </Button>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="pt-2 border-t">
+                              <p className="text-xs text-muted-foreground">You don&apos;t have permission to modify orders.</p>
+                            </div>
+                          )}
                         </div>
                       </motion.div>
                     )}
@@ -5066,7 +5136,11 @@ interface CategoryWithCount extends Category {
 
 function AdminCategories({ onCategoriesChange }: { onCategoriesChange?: () => void }) {
   const { setView } = useAppStore()
+  const { user } = useAuthStore()
   const { toast } = useToast()
+  const canAdd = isSuperAdmin(user?.adminRole) || hasPermission(user?.permissions, 'categories', 'add')
+  const canEdit = isSuperAdmin(user?.adminRole) || hasPermission(user?.permissions, 'categories', 'edit')
+  const canDelete = isSuperAdmin(user?.adminRole) || hasPermission(user?.permissions, 'categories', 'delete')
   const [categories, setCategories] = useState<CategoryWithCount[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -5293,9 +5367,11 @@ function AdminCategories({ onCategoriesChange }: { onCategoriesChange?: () => vo
               <p className="text-muted-foreground">Manage your product categories</p>
             </div>
           </div>
-          <Button onClick={() => { resetForm(); setShowAddDialog(true) }} className="gap-2">
-            <Plus className="size-4" /> Add Category
-          </Button>
+          {canAdd && (
+            <Button onClick={() => { resetForm(); setShowAddDialog(true) }} className="gap-2">
+              <Plus className="size-4" /> Add Category
+            </Button>
+          )}
         </div>
 
         {/* Search */}
@@ -5321,7 +5397,7 @@ function AdminCategories({ onCategoriesChange }: { onCategoriesChange?: () => vo
               <p className="text-muted-foreground mb-4">
                 {search ? 'No categories match your search.' : 'Get started by adding your first category.'}
               </p>
-              {!search && (
+              {!search && canAdd && (
                 <Button onClick={() => { resetForm(); setShowAddDialog(true) }} className="gap-2">
                   <Plus className="size-4" /> Add Category
                 </Button>
@@ -5358,12 +5434,16 @@ function AdminCategories({ onCategoriesChange }: { onCategoriesChange?: () => vo
                         {cat._count?.products ?? 0} product{(cat._count?.products ?? 0) !== 1 ? 's' : ''}
                       </span>
                       <div className="flex gap-1">
-                        <Button variant="ghost" size="icon" className="size-8" onClick={() => openEditDialog(cat)}>
-                          <Pencil className="size-3.5" />
-                        </Button>
-                        <Button variant="ghost" size="icon" className="size-8 text-destructive hover:text-destructive" onClick={() => openDeleteDialog(cat)}>
-                          <Trash2 className="size-3.5" />
-                        </Button>
+                        {canEdit && (
+                          <Button variant="ghost" size="icon" className="size-8" onClick={() => openEditDialog(cat)}>
+                            <Pencil className="size-3.5" />
+                          </Button>
+                        )}
+                        {canDelete && (
+                          <Button variant="ghost" size="icon" className="size-8 text-destructive hover:text-destructive" onClick={() => openDeleteDialog(cat)}>
+                            <Trash2 className="size-3.5" />
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </CardContent>
@@ -5431,6 +5511,482 @@ function AdminCategories({ onCategoriesChange }: { onCategoriesChange?: () => vo
               <Button variant="outline" onClick={() => setShowDeleteDialog(false)}>Cancel</Button>
               <Button variant="destructive" onClick={handleDeleteCategory} disabled={saving || (selectedCategory ? (selectedCategory._count?.products ?? 0) > 0 : false)}>
                 {saving ? <div className="size-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <><Trash2 className="size-4 mr-1" /> Delete</>}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </motion.div>
+    </div>
+  )
+}
+
+// ─── Admin Staff View ────────────────────────────────────────────────────────
+
+function AdminStaff() {
+  const { setView } = useAppStore()
+  const { user: currentUser } = useAuthStore()
+  const { toast } = useToast()
+  const [staff, setStaff] = useState<StaffMember[]>([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+
+  // Dialog states
+  const [showAddDialog, setShowAddDialog] = useState(false)
+  const [showEditDialog, setShowEditDialog] = useState(false)
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [selectedStaff, setSelectedStaff] = useState<StaffMember | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  // Form state
+  const [formName, setFormName] = useState('')
+  const [formEmail, setFormEmail] = useState('')
+  const [formPassword, setFormPassword] = useState('')
+  const [formAdminRole, setFormAdminRole] = useState('sub_admin')
+  const [formPermissions, setFormPermissions] = useState<PermissionSet>({})
+  const [formError, setFormError] = useState('')
+
+  const fetchStaff = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/staff')
+      if (res.status === 403) {
+        toast({ title: 'Access Denied', description: 'Only super admin can manage staff.', variant: 'destructive' })
+        setView({ view: 'admin' })
+        return
+      }
+      const data = await res.json()
+      if (Array.isArray(data)) setStaff(data)
+    } catch {}
+    setLoading(false)
+  }, [toast, setView])
+
+  useEffect(() => { fetchStaff() }, [fetchStaff])
+
+  const resetForm = () => {
+    setFormName(''); setFormEmail(''); setFormPassword('')
+    setFormAdminRole('sub_admin')
+    setFormPermissions({
+      products: { view: true, add: false, edit: false, delete: false },
+      categories: { view: true, add: false, edit: false, delete: false },
+      orders: { view: true, edit: false, delete: false },
+      staff: { view: false, add: false, edit: false, delete: false },
+    })
+    setFormError('')
+  }
+
+  const openEditDialog = (s: StaffMember) => {
+    setSelectedStaff(s)
+    setFormName(s.name); setFormEmail(s.email); setFormPassword('')
+    setFormAdminRole(s.adminRole)
+    setFormPermissions(parsePermissions(s.permissions))
+    setFormError('')
+    setShowEditDialog(true)
+  }
+
+  const openDeleteDialog = (s: StaffMember) => {
+    setSelectedStaff(s)
+    setShowDeleteDialog(true)
+  }
+
+  const handleAddStaff = async () => {
+    if (!formName.trim() || !formEmail.trim() || !formPassword.trim()) {
+      setFormError('Name, email, and password are required'); return
+    }
+    setSaving(true); setFormError('')
+    try {
+      const res = await fetch('/api/admin/staff', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: formName.trim(),
+          email: formEmail.trim(),
+          password: formPassword,
+          adminRole: formAdminRole,
+          permissions: formAdminRole === 'super_admin' ? undefined : formPermissions,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setFormError(data.error || 'Failed to create staff'); return }
+      toast({ title: 'Staff Created', description: `${formName} has been added as ${formAdminRole === 'super_admin' ? 'Super Admin' : 'Sub Admin'}.` })
+      await fetchStaff()
+      setShowAddDialog(false); resetForm()
+    } catch { setFormError('Failed to create staff') }
+    finally { setSaving(false) }
+  }
+
+  const handleEditStaff = async () => {
+    if (!selectedStaff) return
+    if (!formName.trim() || !formEmail.trim()) {
+      setFormError('Name and email are required'); return
+    }
+    setSaving(true); setFormError('')
+    try {
+      const body: Record<string, unknown> = {
+        name: formName.trim(),
+        email: formEmail.trim(),
+        adminRole: formAdminRole,
+        permissions: formAdminRole === 'super_admin' ? undefined : formPermissions,
+      }
+      if (formPassword && formPassword.length >= 6) body.password = formPassword
+      const res = await fetch(`/api/admin/staff/${selectedStaff.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json()
+      if (!res.ok) { setFormError(data.error || 'Failed to update staff'); return }
+      toast({ title: 'Staff Updated', description: `${formName}'s permissions have been updated.` })
+      await fetchStaff()
+      setShowEditDialog(false); resetForm()
+    } catch { setFormError('Failed to update staff') }
+    finally { setSaving(false) }
+  }
+
+  const handleDeleteStaff = async () => {
+    if (!selectedStaff) return
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/admin/staff/${selectedStaff.id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const data = await res.json()
+        toast({ title: 'Error', description: data.error, variant: 'destructive' }); return
+      }
+      toast({ title: 'Staff Removed', description: `${selectedStaff.name}'s admin access has been removed.` })
+      await fetchStaff()
+      setShowDeleteDialog(false)
+    } catch { toast({ title: 'Error', description: 'Failed to remove staff.', variant: 'destructive' }) }
+    finally { setSaving(false) }
+  }
+
+  const togglePermission = (section: string, action: string) => {
+    setFormPermissions(prev => ({
+      ...prev,
+      [section]: {
+        ...(prev as Record<string, Record<string, boolean>>)[section],
+        [action]: !((prev as Record<string, Record<string, boolean>>)[section]?.[action]),
+      },
+    }))
+  }
+
+  const grantAll = (section: string) => {
+    const actions = section === 'orders' ? ['view', 'edit', 'delete'] : ['view', 'add', 'edit', 'delete']
+    setFormPermissions(prev => ({
+      ...prev,
+      [section]: Object.fromEntries(actions.map(a => [a, true])),
+    }))
+  }
+
+  const revokeAll = (section: string) => {
+    const actions = section === 'orders' ? ['view', 'edit', 'delete'] : ['view', 'add', 'edit', 'delete']
+    setFormPermissions(prev => ({
+      ...prev,
+      [section]: Object.fromEntries(actions.map(a => [a, false])),
+    }))
+  }
+
+  // Permission sections config
+  const permSections = [
+    { key: 'products', label: 'Products', icon: Boxes, actions: ['view', 'add', 'edit', 'delete'] },
+    { key: 'categories', label: 'Categories', icon: Tag, actions: ['view', 'add', 'edit', 'delete'] },
+    { key: 'orders', label: 'Orders', icon: ClipboardList, actions: ['view', 'edit', 'delete'] },
+    { key: 'staff', label: 'Staff', icon: UsersRound, actions: ['view', 'add', 'edit', 'delete'] },
+  ]
+
+  // Staff form component (shared)
+  const StaffForm = () => (
+    <div className="space-y-4 py-2">
+      {formError && (
+        <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 p-3 rounded-lg">
+          <AlertCircle className="size-4 shrink-0" /> {formError}
+        </div>
+      )}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>Name *</Label>
+          <Input value={formName} onChange={e => setFormName(e.target.value)} placeholder="Staff name" />
+        </div>
+        <div className="space-y-2">
+          <Label>Email *</Label>
+          <Input type="email" value={formEmail} onChange={e => setFormEmail(e.target.value)} placeholder="staff@example.com" />
+        </div>
+      </div>
+      <div className="space-y-2">
+        <Label>{showEditDialog ? 'New Password (leave blank to keep current)' : 'Password *'}</Label>
+        <Input type="password" value={formPassword} onChange={e => setFormPassword(e.target.value)} placeholder={showEditDialog ? 'Leave blank to keep current' : 'Min. 6 characters'} />
+      </div>
+      <div className="space-y-2">
+        <Label>Admin Role</Label>
+        <Select value={formAdminRole} onValueChange={v => { setFormAdminRole(v); if (v === 'super_admin') setFormPermissions(parsePermissions(JSON.stringify({ products: { view: true, add: true, edit: true, delete: true }, categories: { view: true, add: true, edit: true, delete: true }, orders: { view: true, edit: true, delete: true }, staff: { view: true, add: true, edit: true, delete: true } }))) }}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="super_admin">Super Admin (Full Access)</SelectItem>
+            <SelectItem value="sub_admin">Sub Admin (Custom Permissions)</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {formAdminRole === 'sub_admin' && (
+        <div className="space-y-3">
+          <Label className="text-base font-semibold">Permissions</Label>
+          {permSections.map(section => {
+            const SectionIcon = section.icon
+            const perms = (formPermissions as Record<string, Record<string, boolean>>)[section.key] || {}
+            const allGranted = section.actions.every(a => perms[a])
+            return (
+              <Card key={section.key} className="overflow-hidden">
+                <CardContent className="p-0">
+                  <div className="flex items-center justify-between px-4 py-3 bg-muted/50">
+                    <div className="flex items-center gap-2">
+                      <SectionIcon className="size-4 text-primary" />
+                      <span className="font-medium text-sm">{section.label}</span>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => grantAll(section.key)}>
+                        Grant All
+                      </Button>
+                      <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => revokeAll(section.key)}>
+                        Revoke All
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2 px-4 py-3">
+                    {section.actions.map(action => (
+                      <button
+                        key={action}
+                        type="button"
+                        onClick={() => togglePermission(section.key, action)}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-200 border ${
+                          perms[action]
+                            ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400'
+                            : 'bg-muted/50 border-border text-muted-foreground hover:bg-muted'
+                        }`}
+                      >
+                        {perms[action] ? <Check className="size-3" /> : <X className="size-3" />}
+                        {action.charAt(0).toUpperCase() + action.slice(1)}
+                      </button>
+                    ))}
+                    {allGranted && (
+                      <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 border-0 text-[10px]">
+                        Full Access
+                      </Badge>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )
+          })}
+        </div>
+      )}
+
+      {formAdminRole === 'super_admin' && (
+        <div className="bg-primary/5 border border-primary/20 rounded-lg p-4 text-sm">
+          <div className="flex items-center gap-2 text-primary font-medium mb-1">
+            <Shield className="size-4" /> Super Admin
+          </div>
+          <p className="text-muted-foreground">Full access to all features and settings. No permission restrictions.</p>
+        </div>
+      )}
+    </div>
+  )
+
+  const filteredStaff = staff.filter(s =>
+    s.name.toLowerCase().includes(search.toLowerCase()) ||
+    s.email.toLowerCase().includes(search.toLowerCase())
+  )
+
+  const roleBadge: Record<string, string> = {
+    super_admin: 'bg-primary/10 text-primary dark:bg-primary/20',
+    sub_admin: 'bg-secondary text-secondary-foreground',
+  }
+
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+      <motion.div {...fadeIn}>
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" size="icon" onClick={() => setView({ view: 'admin' })}>
+              <ArrowLeft className="size-5" />
+            </Button>
+            <div>
+              <h1 className="font-serif text-3xl font-bold flex items-center gap-2">
+                <UsersRound className="size-7 text-primary" /> Staff Management
+              </h1>
+              <p className="text-muted-foreground">Manage admin access and permissions</p>
+            </div>
+          </div>
+          <Button onClick={() => { resetForm(); setShowAddDialog(true) }} className="gap-2">
+            <UserPlus className="size-4" /> Add Staff
+          </Button>
+        </div>
+
+        {/* Current User Info */}
+        {currentUser && (
+          <Card className="mb-6 border-primary/20 bg-primary/5">
+            <CardContent className="p-4 flex items-center gap-4">
+              <div className="size-12 rounded-full bg-primary/10 flex items-center justify-center">
+                <Shield className="size-6 text-primary" />
+              </div>
+              <div>
+                <p className="font-semibold">You ({currentUser.name})</p>
+                <p className="text-sm text-muted-foreground">{currentUser.email}</p>
+                <Badge className={`mt-1 ${roleBadge.super_admin} border-0 text-[10px]`}>
+                  Super Admin
+                </Badge>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Search */}
+        <div className="relative mb-6">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+          <Input placeholder="Search staff..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10" />
+        </div>
+
+        {/* Staff Grid */}
+        {loading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {[1, 2, 3].map(i => (
+              <Card key={i} className="animate-pulse"><CardContent className="p-6"><div className="h-32 bg-muted rounded" /></CardContent></Card>
+            ))}
+          </div>
+        ) : filteredStaff.length === 0 ? (
+          <Card>
+            <CardContent className="p-12 text-center">
+              <UsersRound className="size-12 text-muted-foreground mx-auto mb-4" />
+              <h3 className="font-semibold text-lg mb-1">No staff found</h3>
+              <p className="text-muted-foreground mb-4">
+                {search ? 'No staff match your search.' : 'Add your first staff member.'}
+              </p>
+              {!search && (
+                <Button onClick={() => { resetForm(); setShowAddDialog(true) }} className="gap-2">
+                  <UserPlus className="size-4" /> Add Staff
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filteredStaff.map(s => {
+              const perms = parsePermissions(s.permissions)
+              const permCount = Object.values(perms).reduce((sum, section) =>
+                sum + Object.values(section || {}).filter(Boolean).length, 0)
+              const totalPerms = 15 // max permissions across all sections
+              return (
+                <motion.div key={s.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
+                  <Card className="overflow-hidden group hover:shadow-lg transition-all duration-300">
+                    <div className="bg-gradient-to-r from-primary/10 to-primary/5 p-4">
+                      <div className="flex items-center gap-3">
+                        <div className="size-12 rounded-full bg-primary/10 flex items-center justify-center text-lg font-bold text-primary">
+                          {s.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-semibold truncate">{s.name}</h3>
+                            {s.id === currentUser?.id && <Badge variant="secondary" className="text-[10px]">You</Badge>}
+                          </div>
+                          <p className="text-xs text-muted-foreground truncate">{s.email}</p>
+                          <Badge className={`mt-1 ${roleBadge[s.adminRole] || roleBadge.sub_admin} border-0 text-[10px]`}>
+                            {s.adminRole === 'super_admin' ? 'Super Admin' : 'Sub Admin'}
+                          </Badge>
+                        </div>
+                      </div>
+                    </div>
+                    <CardContent className="p-4">
+                      {s.adminRole !== 'super_admin' && (
+                        <div className="mb-3">
+                          <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                            <span>Permissions</span>
+                            <span>{permCount}/{totalPerms}</span>
+                          </div>
+                          <div className="w-full bg-muted rounded-full h-1.5">
+                            <div className="bg-primary h-1.5 rounded-full transition-all" style={{ width: `${(permCount / totalPerms) * 100}%` }} />
+                          </div>
+                          <div className="flex flex-wrap gap-1 mt-2">
+                            {permSections.filter(ps => (perms as Record<string, Record<string, boolean>>)[ps.key]?.view).map(ps => (
+                              <Badge key={ps.key} variant="secondary" className="text-[10px] px-1.5 py-0">
+                                <ps.icon className="size-2.5 mr-0.5" /> {ps.label}
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-muted-foreground">
+                          Added {new Date(s.createdAt).toLocaleDateString()}
+                        </span>
+                        {s.id !== currentUser?.id && (
+                          <div className="flex gap-1">
+                            <Button variant="ghost" size="icon" className="size-8" onClick={() => openEditDialog(s)}>
+                              <Pencil className="size-3.5" />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="size-8 text-destructive hover:text-destructive" onClick={() => openDeleteDialog(s)}>
+                              <Trash2 className="size-3.5" />
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* Add Staff Dialog */}
+        <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+          <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="font-serif text-xl flex items-center gap-2">
+                <UserPlus className="size-5 text-primary" /> Add Staff Member
+              </DialogTitle>
+              <DialogDescription>Create a new admin with custom permissions.</DialogDescription>
+            </DialogHeader>
+            <StaffForm />
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => setShowAddDialog(false)}>Cancel</Button>
+              <Button onClick={handleAddStaff} disabled={saving}>
+                {saving ? <div className="size-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <><UserPlus className="size-4 mr-1" /> Add Staff</>}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Edit Staff Dialog */}
+        <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+          <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="font-serif text-xl flex items-center gap-2">
+                <Pencil className="size-5 text-primary" /> Edit Staff
+              </DialogTitle>
+              <DialogDescription>Update staff details and permissions.</DialogDescription>
+            </DialogHeader>
+            <StaffForm />
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => setShowEditDialog(false)}>Cancel</Button>
+              <Button onClick={handleEditStaff} disabled={saving}>
+                {saving ? <div className="size-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <><Save className="size-4 mr-1" /> Save Changes</>}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Delete Confirmation Dialog */}
+        <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <AlertCircle className="size-5 text-destructive" /> Remove Admin Access
+              </DialogTitle>
+              <DialogDescription>
+                Remove admin access from &quot;{selectedStaff?.name}&quot;? They will be downgraded to a customer account.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => setShowDeleteDialog(false)}>Cancel</Button>
+              <Button variant="destructive" onClick={handleDeleteStaff} disabled={saving}>
+                {saving ? <div className="size-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <><Trash2 className="size-4 mr-1" /> Remove Access</>}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -5750,6 +6306,8 @@ export default function AlifaainPage() {
         return <AdminGuard><AdminOrders /></AdminGuard>
       case 'admin-categories':
         return <AdminGuard><AdminCategories onCategoriesChange={refreshCategories} /></AdminGuard>
+      case 'admin-staff':
+        return <AdminGuard><AdminStaff /></AdminGuard>
       default:
         return <HomeView products={products} categories={categories} />
     }

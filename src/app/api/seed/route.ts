@@ -1,6 +1,13 @@
 import { db } from '@/lib/db'
 import { hashPassword } from '@/lib/password'
 
+const FULL_PERMISSIONS = JSON.stringify({
+  products: { view: true, add: true, edit: true, delete: true },
+  categories: { view: true, add: true, edit: true, delete: true },
+  orders: { view: true, edit: true, delete: true },
+  staff: { view: true, add: true, edit: true, delete: true },
+})
+
 export async function GET() {
   try {
     // Check if already seeded
@@ -16,6 +23,8 @@ export async function GET() {
             email: 'admin@alifaain.com',
             password: hashedPassword,
             role: 'admin',
+            adminRole: 'super_admin',
+            permissions: FULL_PERMISSIONS,
           },
         })
       } else {
@@ -26,6 +35,13 @@ export async function GET() {
           await db.user.update({
             where: { id: adminExists.id },
             data: { password: hashedPassword },
+          })
+        }
+        // Ensure admin has super_admin role and full permissions
+        if (adminExists.adminRole !== 'super_admin') {
+          await db.user.update({
+            where: { id: adminExists.id },
+            data: { adminRole: 'super_admin', permissions: FULL_PERMISSIONS },
           })
         }
       }
@@ -235,6 +251,8 @@ export async function GET() {
           email: 'admin@alifaain.com',
           password: hashedPassword,
           role: 'admin',
+          adminRole: 'super_admin',
+          permissions: FULL_PERMISSIONS,
         },
       })
     }

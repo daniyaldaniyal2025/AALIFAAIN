@@ -41,6 +41,8 @@ export async function POST(request: NextRequest) {
       email: user.email,
       image: user.image,
       role: user.role,
+      adminRole: user.adminRole,
+      permissions: user.permissions,
       createdAt: user.createdAt.toISOString(),
     })
 
@@ -52,6 +54,8 @@ export async function POST(request: NextRequest) {
         email: user.email,
         image: user.image,
         role: user.role,
+        adminRole: user.adminRole,
+        permissions: user.permissions,
         createdAt: user.createdAt.toISOString(),
       },
     })

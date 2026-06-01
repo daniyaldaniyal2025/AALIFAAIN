@@ -6,6 +6,8 @@ export interface SessionUser {
   email: string
   image: string | null
   role: string
+  adminRole?: string
+  permissions?: string
   createdAt?: string
 }
 
@@ -56,6 +58,8 @@ export function verifySessionToken(token: string): SessionUser | null {
       email: parsed.email,
       image: parsed.image || null,
       role: parsed.role,
+      adminRole: parsed.adminRole || undefined,
+      permissions: parsed.permissions || undefined,
       createdAt: parsed.createdAt || undefined,
     }
   } catch {

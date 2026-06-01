@@ -77,6 +77,8 @@ model User {
   password      String
   image         String?
   role          String    @default("customer")
+  adminRole     String    @default("sub_admin")
+  permissions   String    @default("{}")
   emailVerified DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
