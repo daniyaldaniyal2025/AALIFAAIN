@@ -5542,6 +5542,7 @@ function AdminStaff() {
   const [formEmail, setFormEmail] = useState('')
   const [formPassword, setFormPassword] = useState('')
   const [formAdminRole, setFormAdminRole] = useState('sub_admin')
+  const [formAccessLevel, setFormAccessLevel] = useState<'full' | 'view' | 'update' | 'custom'>('view')
   const [formPermissions, setFormPermissions] = useState<PermissionSet>({})
   const [formError, setFormError] = useState('')
 
@@ -5561,15 +5562,43 @@ function AdminStaff() {
 
   useEffect(() => { fetchStaff() }, [fetchStaff])
 
-  const resetForm = () => {
-    setFormName(''); setFormEmail(''); setFormPassword('')
-    setFormAdminRole('sub_admin')
-    setFormPermissions({
+  const accessLevelPresets: Record<string, PermissionSet> = {
+    full: {
+      products: { view: true, add: true, edit: true, delete: true },
+      categories: { view: true, add: true, edit: true, delete: true },
+      orders: { view: true, edit: true, delete: true },
+      staff: { view: true, add: true, edit: true, delete: true },
+    },
+    view: {
       products: { view: true, add: false, edit: false, delete: false },
       categories: { view: true, add: false, edit: false, delete: false },
       orders: { view: true, edit: false, delete: false },
-      staff: { view: false, add: false, edit: false, delete: false },
-    })
+      staff: { view: true, add: false, edit: false, delete: false },
+    },
+    update: {
+      products: { view: true, add: true, edit: true, delete: false },
+      categories: { view: true, add: true, edit: true, delete: false },
+      orders: { view: true, edit: true, delete: false },
+      staff: { view: true, add: true, edit: true, delete: false },
+    },
+  }
+
+  const detectAccessLevel = (perms: PermissionSet): 'full' | 'view' | 'update' | 'custom' => {
+    for (const [level, preset] of Object.entries(accessLevelPresets)) {
+      const match = Object.entries(preset).every(([section, actions]) => {
+        const permSection = (perms as Record<string, Record<string, boolean>>)[section]
+        return Object.entries(actions).every(([action, val]) => permSection?.[action] === val)
+      })
+      if (match) return level as 'full' | 'view' | 'update'
+    }
+    return 'custom'
+  }
+
+  const resetForm = () => {
+    setFormName(''); setFormEmail(''); setFormPassword('')
+    setFormAdminRole('sub_admin')
+    setFormAccessLevel('view')
+    setFormPermissions(accessLevelPresets.view)
     setFormError('')
   }
 
@@ -5577,7 +5606,9 @@ function AdminStaff() {
     setSelectedStaff(s)
     setFormName(s.name); setFormEmail(s.email); setFormPassword('')
     setFormAdminRole(s.adminRole)
-    setFormPermissions(parsePermissions(s.permissions))
+    const perms = parsePermissions(s.permissions)
+    setFormPermissions(perms)
+    setFormAccessLevel(s.adminRole === 'super_admin' ? 'full' : detectAccessLevel(perms))
     setFormError('')
     setShowEditDialog(true)
   }
@@ -5658,29 +5689,35 @@ function AdminStaff() {
   }
 
   const togglePermission = (section: string, action: string) => {
-    setFormPermissions(prev => ({
-      ...prev,
-      [section]: {
-        ...(prev as Record<string, Record<string, boolean>>)[section],
-        [action]: !((prev as Record<string, Record<string, boolean>>)[section]?.[action]),
-      },
-    }))
+    setFormPermissions(prev => {
+      const updated = {
+        ...prev,
+        [section]: {
+          ...(prev as Record<string, Record<string, boolean>>)[section],
+          [action]: !((prev as Record<string, Record<string, boolean>>)[section]?.[action]),
+        },
+      }
+      setFormAccessLevel(detectAccessLevel(updated))
+      return updated
+    })
   }
 
   const grantAll = (section: string) => {
     const actions = section === 'orders' ? ['view', 'edit', 'delete'] : ['view', 'add', 'edit', 'delete']
-    setFormPermissions(prev => ({
-      ...prev,
-      [section]: Object.fromEntries(actions.map(a => [a, true])),
-    }))
+    setFormPermissions(prev => {
+      const updated = { ...prev, [section]: Object.fromEntries(actions.map(a => [a, true])) }
+      setFormAccessLevel(detectAccessLevel(updated))
+      return updated
+    })
   }
 
   const revokeAll = (section: string) => {
     const actions = section === 'orders' ? ['view', 'edit', 'delete'] : ['view', 'add', 'edit', 'delete']
-    setFormPermissions(prev => ({
-      ...prev,
-      [section]: Object.fromEntries(actions.map(a => [a, false])),
-    }))
+    setFormPermissions(prev => {
+      const updated = { ...prev, [section]: Object.fromEntries(actions.map(a => [a, false])) }
+      setFormAccessLevel(detectAccessLevel(updated))
+      return updated
+    })
   }
 
   // Permission sections config
@@ -5690,6 +5727,20 @@ function AdminStaff() {
     { key: 'orders', label: 'Orders', icon: ClipboardList, actions: ['view', 'edit', 'delete'] },
     { key: 'staff', label: 'Staff', icon: UsersRound, actions: ['view', 'add', 'edit', 'delete'] },
   ]
+
+  // Access level info for display
+  const accessLevelInfo: Record<string, { label: string; color: string; desc: string; icon: React.ElementType }> = {
+    full: { label: 'Full Access', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700', desc: 'Can view, add, edit & delete everything', icon: Shield },
+    view: { label: 'View Access', color: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400 border-sky-300 dark:border-sky-700', desc: 'Can only view — no add, edit or delete', icon: Eye },
+    update: { label: 'Update Access', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border-amber-300 dark:border-amber-700', desc: 'Can view, add & edit — cannot delete', icon: Pencil },
+    custom: { label: 'Custom', color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 border-purple-300 dark:border-purple-700', desc: 'Custom permission combination', icon: ToggleLeft },
+  }
+
+  // Get access level for a staff member
+  const getStaffAccessLevel = (s: StaffMember): string => {
+    if (s.adminRole === 'super_admin') return 'full'
+    return detectAccessLevel(parsePermissions(s.permissions))
+  }
 
   // Staff form component (shared)
   const StaffForm = () => (
@@ -5713,20 +5764,71 @@ function AdminStaff() {
         <Label>{showEditDialog ? 'New Password (leave blank to keep current)' : 'Password *'}</Label>
         <Input type="password" value={formPassword} onChange={e => setFormPassword(e.target.value)} placeholder={showEditDialog ? 'Leave blank to keep current' : 'Min. 6 characters'} />
       </div>
-      <div className="space-y-2">
-        <Label>Admin Role</Label>
-        <Select value={formAdminRole} onValueChange={v => { setFormAdminRole(v); if (v === 'super_admin') setFormPermissions(parsePermissions(JSON.stringify({ products: { view: true, add: true, edit: true, delete: true }, categories: { view: true, add: true, edit: true, delete: true }, orders: { view: true, edit: true, delete: true }, staff: { view: true, add: true, edit: true, delete: true } }))) }}>
-          <SelectTrigger><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="super_admin">Super Admin (Full Access)</SelectItem>
-            <SelectItem value="sub_admin">Sub Admin (Custom Permissions)</SelectItem>
-          </SelectContent>
-        </Select>
+
+      {/* Access Level Presets */}
+      <div className="space-y-3">
+        <Label className="text-base font-semibold">Access Level</Label>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {(['full', 'view', 'update'] as const).map(level => {
+            const info = accessLevelInfo[level]
+            const LevelIcon = info.icon
+            const isActive = formAdminRole === 'super_admin' ? level === 'full' : formAccessLevel === level
+            return (
+              <button
+                key={level}
+                type="button"
+                onClick={() => {
+                  if (level === 'full') {
+                    setFormAdminRole('super_admin')
+                    setFormPermissions(accessLevelPresets.full)
+                    setFormAccessLevel('full')
+                  } else {
+                    setFormAdminRole('sub_admin')
+                    setFormPermissions(accessLevelPresets[level])
+                    setFormAccessLevel(level)
+                  }
+                }}
+                className={`relative text-left p-4 rounded-xl border-2 transition-all duration-200 ${
+                  isActive
+                    ? `${info.color} border-current shadow-sm`
+                    : 'border-border bg-card hover:border-primary/30 hover:bg-muted/50'
+                }`}
+              >
+                {isActive && (
+                  <div className="absolute top-2 right-2">
+                    <CheckCircle2 className="size-5 text-current" />
+                  </div>
+                )}
+                <div className="flex items-center gap-2 mb-1.5">
+                  <LevelIcon className="size-4" />
+                  <span className="font-semibold text-sm">{info.label}</span>
+                </div>
+                <p className="text-xs opacity-80 leading-snug">{info.desc}</p>
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Custom option when permissions don't match a preset */}
+        {formAdminRole === 'sub_admin' && formAccessLevel === 'custom' && (
+          <div className={`flex items-center gap-2 p-3 rounded-xl border-2 ${accessLevelInfo.custom.color} border-current`}>
+            <ToggleLeft className="size-4" />
+            <span className="font-semibold text-sm">Custom Permissions</span>
+            <span className="text-xs opacity-80">— You have a custom combination of permissions</span>
+          </div>
+        )}
       </div>
 
       {formAdminRole === 'sub_admin' && (
         <div className="space-y-3">
-          <Label className="text-base font-semibold">Permissions</Label>
+          <div className="flex items-center justify-between">
+            <Label className="text-base font-semibold">Detailed Permissions</Label>
+            {formAccessLevel !== 'custom' && (
+              <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground" onClick={() => setFormAccessLevel('custom')}>
+                Customize...
+              </Button>
+            )}
+          </div>
           {permSections.map(section => {
             const SectionIcon = section.icon
             const perms = (formPermissions as Record<string, Record<string, boolean>>)[section.key] || {}
@@ -5780,7 +5882,7 @@ function AdminStaff() {
       {formAdminRole === 'super_admin' && (
         <div className="bg-primary/5 border border-primary/20 rounded-lg p-4 text-sm">
           <div className="flex items-center gap-2 text-primary font-medium mb-1">
-            <Shield className="size-4" /> Super Admin
+            <Shield className="size-4" /> Super Admin — Full Access
           </div>
           <p className="text-muted-foreground">Full access to all features and settings. No permission restrictions.</p>
         </div>
@@ -5792,11 +5894,6 @@ function AdminStaff() {
     s.name.toLowerCase().includes(search.toLowerCase()) ||
     s.email.toLowerCase().includes(search.toLowerCase())
   )
-
-  const roleBadge: Record<string, string> = {
-    super_admin: 'bg-primary/10 text-primary dark:bg-primary/20',
-    sub_admin: 'bg-secondary text-secondary-foreground',
-  }
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
@@ -5829,9 +5926,9 @@ function AdminStaff() {
               <div>
                 <p className="font-semibold">You ({currentUser.name})</p>
                 <p className="text-sm text-muted-foreground">{currentUser.email}</p>
-                <Badge className={`mt-1 ${roleBadge.super_admin} border-0 text-[10px]`}>
-                  Super Admin
-                </Badge>
+                <div className={`inline-flex items-center gap-1 mt-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${accessLevelInfo.full.color}`}>
+                  <Shield className="size-3" /> Full Access — Super Admin
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -5872,6 +5969,9 @@ function AdminStaff() {
               const permCount = Object.values(perms).reduce((sum, section) =>
                 sum + Object.values(section || {}).filter(Boolean).length, 0)
               const totalPerms = 15 // max permissions across all sections
+              const accessLevel = getStaffAccessLevel(s)
+              const levelInfo = accessLevelInfo[accessLevel]
+              const LevelIcon = levelInfo.icon
               return (
                 <motion.div key={s.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
                   <Card className="overflow-hidden group hover:shadow-lg transition-all duration-300">
@@ -5886,9 +5986,10 @@ function AdminStaff() {
                             {s.id === currentUser?.id && <Badge variant="secondary" className="text-[10px]">You</Badge>}
                           </div>
                           <p className="text-xs text-muted-foreground truncate">{s.email}</p>
-                          <Badge className={`mt-1 ${roleBadge[s.adminRole] || roleBadge.sub_admin} border-0 text-[10px]`}>
-                            {s.adminRole === 'super_admin' ? 'Super Admin' : 'Sub Admin'}
-                          </Badge>
+                          <div className={`inline-flex items-center gap-1 mt-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${levelInfo.color}`}>
+                            <LevelIcon className="size-3" />
+                            {levelInfo.label}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -5900,14 +6001,28 @@ function AdminStaff() {
                             <span>{permCount}/{totalPerms}</span>
                           </div>
                           <div className="w-full bg-muted rounded-full h-1.5">
-                            <div className="bg-primary h-1.5 rounded-full transition-all" style={{ width: `${(permCount / totalPerms) * 100}%` }} />
+                            <div className={`h-1.5 rounded-full transition-all ${
+                              accessLevel === 'full' ? 'bg-emerald-500' :
+                              accessLevel === 'update' ? 'bg-amber-500' :
+                              accessLevel === 'view' ? 'bg-sky-500' :
+                              'bg-purple-500'
+                            }`} style={{ width: `${(permCount / totalPerms) * 100}%` }} />
                           </div>
                           <div className="flex flex-wrap gap-1 mt-2">
-                            {permSections.filter(ps => (perms as Record<string, Record<string, boolean>>)[ps.key]?.view).map(ps => (
-                              <Badge key={ps.key} variant="secondary" className="text-[10px] px-1.5 py-0">
-                                <ps.icon className="size-2.5 mr-0.5" /> {ps.label}
-                              </Badge>
-                            ))}
+                            {permSections.filter(ps => (perms as Record<string, Record<string, boolean>>)[ps.key]?.view).map(ps => {
+                              const sectionPerms = (perms as Record<string, Record<string, boolean>>)[ps.key] || {}
+                              const hasFull = ps.actions.every(a => sectionPerms[a])
+                              const hasEdit = sectionPerms.edit || sectionPerms.add
+                              return (
+                                <Badge key={ps.key} variant="secondary" className={`text-[10px] px-1.5 py-0 ${
+                                  hasFull ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' :
+                                  hasEdit ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
+                                  'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400'
+                                }`}>
+                                  <ps.icon className="size-2.5 mr-0.5" /> {ps.label}
+                                </Badge>
+                              )
+                            })}
                           </div>
                         </div>
                       )}
