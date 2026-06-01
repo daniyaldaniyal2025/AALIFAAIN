@@ -1906,27 +1906,6 @@ function SignInView() {
                       </>
                     )}
                   </Button>
-
-                  {/* Divider */}
-                  <div className="relative my-2">
-                    <div className="absolute inset-0 flex items-center">
-                      <span className="w-full border-t" />
-                    </div>
-                    <div className="relative flex justify-center text-xs uppercase">
-                      <span className="bg-card px-2 text-muted-foreground">or</span>
-                    </div>
-                  </div>
-
-                  {/* Admin Login Hint */}
-                  <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
-                    <div className="flex items-start gap-3">
-                      <ShieldCheck className="size-5 text-primary shrink-0 mt-0.5" />
-                      <div className="flex-1">
-                        <p className="text-sm font-medium">Admin?</p>
-                        <p className="text-xs text-muted-foreground">Sign in with admin credentials to access the dashboard</p>
-                      </div>
-                    </div>
-                  </div>
                 </form>
               </CardContent>
               <CardFooter className="justify-center border-t pt-6">
