@@ -1,10 +1,24 @@
 import { db } from '@/lib/db'
+import { hashPassword } from '@/lib/password'
 
 export async function GET() {
   try {
     // Check if already seeded
     const count = await db.product.count()
     if (count > 0) {
+      // Still ensure admin user exists
+      const adminExists = await db.user.findUnique({ where: { email: 'admin@alifaain.com' } })
+      if (!adminExists) {
+        const hashedPassword = hashPassword('admin123')
+        await db.user.create({
+          data: {
+            name: 'Admin',
+            email: 'admin@alifaain.com',
+            password: hashedPassword,
+            role: 'admin',
+          },
+        })
+      }
       return Response.json({ message: 'Database already seeded', count })
     }
 
@@ -176,6 +190,20 @@ export async function GET() {
               quantity: i % 3 + 1,
             },
           },
+        },
+      })
+    }
+
+    // Create admin user
+    const adminExists = await db.user.findUnique({ where: { email: 'admin@alifaain.com' } })
+    if (!adminExists) {
+      const hashedPassword = await bcrypt.hash('admin123', 12)
+      await db.user.create({
+        data: {
+          name: 'Admin',
+          email: 'admin@alifaain.com',
+          password: hashedPassword,
+          role: 'admin',
         },
       })
     }

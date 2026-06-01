@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTheme } from 'next-themes'
 import { useCartStore, useAppStore } from '@/stores/app-store'
+import { useAuthStore } from '@/stores/auth-store'
 import { formatPrice, countries, getCountryByCode } from '@/lib/currency'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card'
@@ -23,7 +24,8 @@ import {
   Plus, Minus, Trash2, ArrowLeft, Search, ChevronDown, Package, DollarSign,
   Clock, TrendingUp, Users, Mail, Instagram, Twitter, Facebook, MapPin, Phone,
   X, ShoppingBag, CheckCircle2, ArrowRight, Sparkles, Heart, Eye, Filter,
-  BarChart3, Boxes, ClipboardList, RefreshCw, Globe, ChevronRight
+  BarChart3, Boxes, ClipboardList, RefreshCw, Globe, ChevronRight, LogIn,
+  LogOut, UserCircle, UserPlus, Lock, AlertCircle, Check
 } from 'lucide-react'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
@@ -146,6 +148,8 @@ function Header() {
   const totalItems = items.reduce((s, i) => s + i.quantity, 0)
   const { theme, setTheme } = useTheme()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const { user, signOut } = useAuthStore()
 
   // Detect client-side mounting without using setState in an effect
   const mounted = React.useSyncExternalStore(
@@ -160,12 +164,18 @@ function Header() {
     { label: 'Home', view: 'home' as const, icon: Home },
     { label: 'Shop', view: 'products' as const, icon: Store },
     { label: 'Cart', view: 'cart' as const, icon: ShoppingCart, badge: totalItems },
-    { label: 'Admin', view: 'admin' as const, icon: BarChart3 },
+    ...(user?.role === 'admin' ? [{ label: 'Admin', view: 'admin' as const, icon: BarChart3 }] : []),
   ]
 
   const handleNav = (view: 'home' | 'products' | 'cart' | 'admin') => {
     setView({ view })
     setMobileOpen(false)
+  }
+
+  const handleSignOut = async () => {
+    await signOut()
+    setUserMenuOpen(false)
+    setView({ view: 'home' })
   }
 
   return (
@@ -234,6 +244,105 @@ function Header() {
             </Button>
           )}
 
+          {/* Auth Button / User Menu */}
+          {mounted && (
+            <>
+              {user ? (
+                <div className="relative">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="gap-2 h-8"
+                    onClick={() => setUserMenuOpen(!userMenuOpen)}
+                  >
+                    <div className="size-7 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden">
+                      {user.image ? (
+                        <img src={user.image} alt={user.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-xs font-bold text-primary">{user.name.charAt(0).toUpperCase()}</span>
+                      )}
+                    </div>
+                    <span className="hidden sm:inline text-xs max-w-[80px] truncate">{user.name}</span>
+                  </Button>
+                  <AnimatePresence>
+                    {userMenuOpen && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setUserMenuOpen(false)} />
+                        <motion.div
+                          initial={{ opacity: 0, y: 8, scale: 0.95 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: 8, scale: 0.95 }}
+                          transition={{ duration: 0.15 }}
+                          className="absolute right-0 top-full mt-2 w-64 bg-card border rounded-xl shadow-xl z-50 overflow-hidden"
+                        >
+                          <div className="p-4 border-b">
+                            <div className="flex items-center gap-3">
+                              <div className="size-10 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden">
+                                {user.image ? (
+                                  <img src={user.image} alt={user.name} className="w-full h-full object-cover" />
+                                ) : (
+                                  <span className="text-sm font-bold text-primary">{user.name.charAt(0).toUpperCase()}</span>
+                                )}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="font-semibold text-sm truncate">{user.name}</p>
+                                <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                                {user.role === 'admin' && (
+                                  <Badge variant="secondary" className="text-[10px] mt-1">
+                                    <ShieldCheck className="size-3 mr-1" /> Admin
+                                  </Badge>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="p-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="w-full justify-start gap-2 text-sm"
+                              onClick={() => { setView({ view: 'profile' }); setUserMenuOpen(false) }}
+                            >
+                              <UserCircle className="size-4" /> My Profile
+                            </Button>
+                            {user.role === 'admin' && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="w-full justify-start gap-2 text-sm"
+                                onClick={() => { setView({ view: 'admin' }); setUserMenuOpen(false) }}
+                              >
+                                <BarChart3 className="size-4" /> Admin Dashboard
+                              </Button>
+                            )}
+                            <Separator className="my-1" />
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="w-full justify-start gap-2 text-sm text-destructive hover:text-destructive"
+                              onClick={handleSignOut}
+                            >
+                              <LogOut className="size-4" /> Sign Out
+                            </Button>
+                          </div>
+                        </motion.div>
+                      </>
+                    )}
+                  </AnimatePresence>
+                </div>
+              ) : (
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="gap-1.5 h-8"
+                  onClick={() => setView({ view: 'signin' })}
+                >
+                  <LogIn className="size-3.5" />
+                  <span className="hidden sm:inline">Sign In</span>
+                </Button>
+              )}
+            </>
+          )}
+
           {/* Mobile Menu */}
           <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
             <SheetTrigger asChild>
@@ -258,6 +367,39 @@ function Header() {
                     )}
                   </Button>
                 ))}
+                <Separator className="my-2" />
+                {user ? (
+                  <>
+                    <div className="flex items-center gap-3 px-4 py-2">
+                      <div className="size-8 rounded-full bg-primary/10 flex items-center justify-center">
+                        {user.image ? (
+                          <img src={user.image} alt={user.name} className="w-full h-full object-cover rounded-full" />
+                        ) : (
+                          <span className="text-xs font-bold text-primary">{user.name.charAt(0).toUpperCase()}</span>
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-semibold text-sm truncate">{user.name}</p>
+                        <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                      </div>
+                    </div>
+                    <Button variant="ghost" className="justify-start gap-3" onClick={() => { setView({ view: 'profile' }); setMobileOpen(false) }}>
+                      <UserCircle className="size-4" /> My Profile
+                    </Button>
+                    <Button variant="ghost" className="justify-start gap-3 text-destructive hover:text-destructive" onClick={handleSignOut}>
+                      <LogOut className="size-4" /> Sign Out
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button variant="default" className="justify-start gap-3" onClick={() => { setView({ view: 'signin' }); setMobileOpen(false) }}>
+                      <LogIn className="size-4" /> Sign In
+                    </Button>
+                    <Button variant="outline" className="justify-start gap-3" onClick={() => { setView({ view: 'signup' }); setMobileOpen(false) }}>
+                      <UserPlus className="size-4" /> Create Account
+                    </Button>
+                  </>
+                )}
               </nav>
             </SheetContent>
           </Sheet>
@@ -1578,13 +1720,487 @@ function AdminOrders() {
   )
 }
 
+// ─── Sign In View ─────────────────────────────────────────────────────────────
+
+function SignInView() {
+  const { setView } = useAppStore()
+  const { signIn } = useAuthStore()
+  const { toast } = useToast()
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    setLoading(true)
+
+    if (!email || !password) {
+      setError('Please fill in all fields')
+      setLoading(false)
+      return
+    }
+
+    const result = await signIn(email, password)
+    setLoading(false)
+
+    if (result.success) {
+      toast({ title: 'Welcome back!', description: 'You have been signed in successfully.' })
+      setView({ view: 'home' })
+    } else {
+      setError(result.error || 'Invalid credentials')
+    }
+  }
+
+  return (
+    <div className="min-h-[70vh] flex items-center justify-center py-12">
+      <motion.div {...fadeIn} className="w-full max-w-md px-4">
+        <div className="gradient-border rounded-2xl">
+          <Card className="border-0 shadow-xl">
+            <CardHeader className="text-center pb-2">
+              <div className="mx-auto mb-4 size-16 rounded-full bg-primary/10 flex items-center justify-center">
+                <LogIn className="size-8 text-primary" />
+              </div>
+              <CardTitle className="font-serif text-2xl">Welcome Back</CardTitle>
+              <CardDescription>Sign in to your Alifaain account</CardDescription>
+            </CardHeader>
+            <CardContent className="pt-4">
+              <form onSubmit={handleSubmit} className="space-y-4">
+                {error && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 text-destructive text-sm"
+                  >
+                    <AlertCircle className="size-4 shrink-0" />
+                    {error}
+                  </motion.div>
+                )}
+
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email Address</Label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+                    <Input
+                      id="email"
+                      type="email"
+                      placeholder="you@example.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className="pl-9"
+                      autoComplete="email"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="password">Password</Label>
+                  </div>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+                    <Input
+                      id="password"
+                      type="password"
+                      placeholder="Enter your password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="pl-9"
+                      autoComplete="current-password"
+                    />
+                  </div>
+                </div>
+
+                <Button type="submit" className="w-full" size="lg" disabled={loading}>
+                  {loading ? (
+                    <div className="size-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <>
+                      <LogIn className="size-4 mr-2" /> Sign In
+                    </>
+                  )}
+                </Button>
+              </form>
+            </CardContent>
+            <CardFooter className="justify-center border-t pt-6">
+              <p className="text-sm text-muted-foreground">
+                Don&apos;t have an account?{' '}
+                <button
+                  onClick={() => setView({ view: 'signup' })}
+                  className="text-primary font-semibold hover:underline"
+                >
+                  Create one
+                </button>
+              </p>
+            </CardFooter>
+          </Card>
+        </div>
+      </motion.div>
+    </div>
+  )
+}
+
+// ─── Sign Up View ─────────────────────────────────────────────────────────────
+
+function SignUpView() {
+  const { setView } = useAppStore()
+  const { signUp } = useAuthStore()
+  const { toast } = useToast()
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+
+    if (!name || !email || !password || !confirmPassword) {
+      setError('Please fill in all fields')
+      return
+    }
+
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters')
+      return
+    }
+
+    if (password !== confirmPassword) {
+      setError('Passwords do not match')
+      return
+    }
+
+    setLoading(true)
+
+    const result = await signUp(name, email, password)
+    setLoading(false)
+
+    if (result.success) {
+      toast({ title: 'Account created!', description: 'Welcome to Alifaain!' })
+      setView({ view: 'home' })
+    } else {
+      setError(result.error || 'Registration failed')
+    }
+  }
+
+  return (
+    <div className="min-h-[70vh] flex items-center justify-center py-12">
+      <motion.div {...fadeIn} className="w-full max-w-md px-4">
+        <div className="gradient-border rounded-2xl">
+          <Card className="border-0 shadow-xl">
+            <CardHeader className="text-center pb-2">
+              <div className="mx-auto mb-4 size-16 rounded-full bg-primary/10 flex items-center justify-center">
+                <UserPlus className="size-8 text-primary" />
+              </div>
+              <CardTitle className="font-serif text-2xl">Create Account</CardTitle>
+              <CardDescription>Join Alifaain for the best beauty experience</CardDescription>
+            </CardHeader>
+            <CardContent className="pt-4">
+              <form onSubmit={handleSubmit} className="space-y-4">
+                {error && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 text-destructive text-sm"
+                  >
+                    <AlertCircle className="size-4 shrink-0" />
+                    {error}
+                  </motion.div>
+                )}
+
+                <div className="space-y-2">
+                  <Label htmlFor="name">Full Name</Label>
+                  <div className="relative">
+                    <UserCircle className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+                    <Input
+                      id="name"
+                      type="text"
+                      placeholder="Your full name"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      className="pl-9"
+                      autoComplete="name"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="signup-email">Email Address</Label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+                    <Input
+                      id="signup-email"
+                      type="email"
+                      placeholder="you@example.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className="pl-9"
+                      autoComplete="email"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="signup-password">Password</Label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+                    <Input
+                      id="signup-password"
+                      type="password"
+                      placeholder="At least 6 characters"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="pl-9"
+                      autoComplete="new-password"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="confirm-password">Confirm Password</Label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+                    <Input
+                      id="confirm-password"
+                      type="password"
+                      placeholder="Confirm your password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      className="pl-9"
+                      autoComplete="new-password"
+                    />
+                  </div>
+                  {confirmPassword && password === confirmPassword && (
+                    <motion.p
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="flex items-center gap-1 text-xs text-emerald-600"
+                    >
+                      <Check className="size-3" /> Passwords match
+                    </motion.p>
+                  )}
+                </div>
+
+                <Button type="submit" className="w-full" size="lg" disabled={loading}>
+                  {loading ? (
+                    <div className="size-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <>
+                      <UserPlus className="size-4 mr-2" /> Create Account
+                    </>
+                  )}
+                </Button>
+              </form>
+            </CardContent>
+            <CardFooter className="justify-center border-t pt-6">
+              <p className="text-sm text-muted-foreground">
+                Already have an account?{' '}
+                <button
+                  onClick={() => setView({ view: 'signin' })}
+                  className="text-primary font-semibold hover:underline"
+                >
+                  Sign In
+                </button>
+              </p>
+            </CardFooter>
+          </Card>
+        </div>
+      </motion.div>
+    </div>
+  )
+}
+
+// ─── Profile View ─────────────────────────────────────────────────────────────
+
+function ProfileView() {
+  const { user, signOut } = useAuthStore()
+  const { setView } = useAppStore()
+  const { toast } = useToast()
+
+  if (!user) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-16 text-center">
+        <UserCircle className="size-16 text-muted-foreground mx-auto mb-4" />
+        <h2 className="font-serif text-2xl font-bold mb-2">Not Signed In</h2>
+        <p className="text-muted-foreground mb-6">Please sign in to view your profile.</p>
+        <Button onClick={() => setView({ view: 'signin' })}>
+          <LogIn className="size-4 mr-2" /> Sign In
+        </Button>
+      </div>
+    )
+  }
+
+  const handleSignOut = async () => {
+    await signOut()
+    toast({ title: 'Signed out', description: 'You have been signed out successfully.' })
+    setView({ view: 'home' })
+  }
+
+  return (
+    <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8">
+      <motion.div {...fadeIn}>
+        <h1 className="font-serif text-3xl font-bold mb-8">My Profile</h1>
+
+        <div className="gradient-border rounded-2xl overflow-hidden">
+          <Card className="border-0">
+            <CardContent className="p-0">
+              {/* Profile Header */}
+              <div className="relative bg-gradient-to-br from-primary/10 via-amber-500/5 to-orange-500/10 p-8">
+                <div className="flex items-center gap-6">
+                  <div className="size-20 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden ring-4 ring-background shadow-lg">
+                    {user.image ? (
+                      <img src={user.image} alt={user.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-2xl font-bold text-primary font-serif">{user.name.charAt(0).toUpperCase()}</span>
+                    )}
+                  </div>
+                  <div>
+                    <h2 className="font-serif text-2xl font-bold">{user.name}</h2>
+                    <p className="text-muted-foreground">{user.email}</p>
+                    <div className="flex items-center gap-2 mt-2">
+                      <Badge variant="secondary" className="text-xs">
+                        {user.role === 'admin' ? (
+                          <><ShieldCheck className="size-3 mr-1" /> Administrator</>
+                        ) : (
+                          <><UserCircle className="size-3 mr-1" /> Customer</>
+                        )}
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Profile Details */}
+              <div className="p-6 space-y-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Card>
+                    <CardContent className="p-4">
+                      <div className="flex items-center gap-3">
+                        <div className="size-10 rounded-full bg-primary/10 flex items-center justify-center">
+                          <Mail className="size-5 text-primary" />
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Email</p>
+                          <p className="font-medium text-sm">{user.email}</p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="p-4">
+                      <div className="flex items-center gap-3">
+                        <div className="size-10 rounded-full bg-primary/10 flex items-center justify-center">
+                          <ShieldCheck className="size-5 text-primary" />
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Account Type</p>
+                          <p className="font-medium text-sm capitalize">{user.role}</p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Quick Actions */}
+                <div className="space-y-3">
+                  <h3 className="font-serif font-semibold text-lg">Quick Actions</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <Button variant="outline" className="justify-start gap-3 h-12" onClick={() => setView({ view: 'products' })}>
+                      <Store className="size-4" /> Continue Shopping
+                    </Button>
+                    <Button variant="outline" className="justify-start gap-3 h-12" onClick={() => setView({ view: 'cart' })}>
+                      <ShoppingCart className="size-4" /> View My Cart
+                    </Button>
+                    {user.role === 'admin' && (
+                      <Button variant="outline" className="justify-start gap-3 h-12" onClick={() => setView({ view: 'admin' })}>
+                        <BarChart3 className="size-4" /> Admin Dashboard
+                      </Button>
+                    )}
+                    <Button variant="outline" className="justify-start gap-3 h-12 text-destructive hover:text-destructive" onClick={handleSignOut}>
+                      <LogOut className="size-4" /> Sign Out
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </motion.div>
+    </div>
+  )
+}
+
+// ─── Admin Guard Component ────────────────────────────────────────────────────
+
+function AdminGuard({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuthStore()
+  const { setView } = useAppStore()
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="size-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+      </div>
+    )
+  }
+
+  if (!user) {
+    return (
+      <div className="max-w-md mx-auto px-4 sm:px-6 py-16 text-center">
+        <div className="gradient-border rounded-2xl">
+          <Card className="border-0">
+            <CardContent className="p-8">
+              <Lock className="size-12 text-muted-foreground mx-auto mb-4" />
+              <h2 className="font-serif text-2xl font-bold mb-2">Sign In Required</h2>
+              <p className="text-muted-foreground mb-6">You need to sign in to access the admin dashboard.</p>
+              <Button onClick={() => setView({ view: 'signin' })}>
+                <LogIn className="size-4 mr-2" /> Sign In
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    )
+  }
+
+  if (user.role !== 'admin') {
+    return (
+      <div className="max-w-md mx-auto px-4 sm:px-6 py-16 text-center">
+        <div className="gradient-border rounded-2xl">
+          <Card className="border-0">
+            <CardContent className="p-8">
+              <ShieldCheck className="size-12 text-muted-foreground mx-auto mb-4" />
+              <h2 className="font-serif text-2xl font-bold mb-2">Access Denied</h2>
+              <p className="text-muted-foreground mb-6">You don&apos;t have admin privileges to access this area.</p>
+              <Button onClick={() => setView({ view: 'home' })}>
+                <Home className="size-4 mr-2" /> Go Home
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    )
+  }
+
+  return <>{children}</>
+}
+
 // ─── Main Page Component ─────────────────────────────────────────────────────
 
 export default function AlifaainPage() {
   const { currentView } = useAppStore()
+  const { fetchSession, user, loading: authLoading } = useAuthStore()
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [seeded, setSeeded] = useState(false)
+
+  // Fetch auth session on mount
+  useEffect(() => {
+    fetchSession()
+  }, [fetchSession])
 
   // Seed database on first mount
   useEffect(() => {
@@ -1611,7 +2227,7 @@ export default function AlifaainPage() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }, [currentView.view])
 
-  if (loading) {
+  if (loading || authLoading) {
     return (
       <div className="min-h-screen flex flex-col">
         <Header />
@@ -1638,12 +2254,18 @@ export default function AlifaainPage() {
         return <CartView />
       case 'checkout':
         return <CheckoutView />
+      case 'signin':
+        return <SignInView />
+      case 'signup':
+        return <SignUpView />
+      case 'profile':
+        return <ProfileView />
       case 'admin':
-        return <AdminDashboard />
+        return <AdminGuard><AdminDashboard /></AdminGuard>
       case 'admin-products':
-        return <AdminProducts products={products} />
+        return <AdminGuard><AdminProducts products={products} /></AdminGuard>
       case 'admin-orders':
-        return <AdminOrders />
+        return <AdminGuard><AdminOrders /></AdminGuard>
       default:
         return <HomeView products={products} />
     }
