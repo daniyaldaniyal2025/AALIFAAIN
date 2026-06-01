@@ -1727,6 +1727,7 @@ function SignInView() {
   const { setView } = useAppStore()
   const { signIn } = useAuthStore()
   const { toast } = useToast()
+  const [loginType, setLoginType] = useState<'customer' | 'admin'>('customer')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -1749,22 +1750,49 @@ function SignInView() {
     setLoading(false)
 
     if (result.success) {
-      toast({ title: 'Welcome back!', description: 'You have been signed in successfully.' })
-      setView({ view: 'home' })
+      const isAdmin = email === 'admin@alifaain.com'
+      toast({
+        title: isAdmin ? 'Welcome, Admin!' : 'Welcome back!',
+        description: isAdmin ? 'You have been signed in to the admin dashboard.' : 'You have been signed in successfully.',
+      })
+      setView({ view: isAdmin ? 'admin' : 'home' })
     } else {
       setError(result.error || 'Invalid credentials')
     }
   }
+
+  const switchToAdmin = () => {
+    setLoginType('admin')
+    setEmail('admin@alifaain.com')
+    setPassword('')
+    setError('')
+  }
+
+  const switchToCustomer = () => {
+    setLoginType('customer')
+    setEmail('')
+    setPassword('')
+    setError('')
+  }
+
+  // Dynamic left panel colors based on login type
+  const leftGradient = loginType === 'admin'
+    ? 'from-slate-800 via-slate-700 to-slate-900 dark:from-slate-900 dark:via-slate-800 dark:to-slate-950'
+    : 'from-amber-600 via-orange-500 to-yellow-500'
+  const mobileGradient = loginType === 'admin'
+    ? 'from-slate-800 via-slate-700 to-slate-900 dark:from-slate-900 dark:via-slate-800 dark:to-slate-950'
+    : 'from-amber-600 via-orange-500 to-yellow-500'
 
   return (
     <div className="min-h-[70vh] flex items-center justify-center py-8 sm:py-12">
       <div className="w-full max-w-5xl mx-auto px-4 sm:px-6 flex flex-col lg:flex-row items-stretch gap-0 lg:gap-0 overflow-hidden rounded-2xl">
         {/* Left Side - Decorative */}
         <motion.div
+          key={loginType}
           initial={{ opacity: 0, x: -30 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.5 }}
-          className="hidden lg:flex lg:w-5/12 relative bg-gradient-to-br from-amber-600 via-orange-500 to-yellow-500 rounded-l-2xl overflow-hidden items-center justify-center p-10"
+          className={`hidden lg:flex lg:w-5/12 relative bg-gradient-to-br ${leftGradient} rounded-l-2xl overflow-hidden items-center justify-center p-10`}
         >
           <div className="absolute inset-0 bg-black/10" />
           <div className="absolute top-8 left-8 size-20 bg-white/10 rounded-full blur-xl animate-float" />
@@ -1777,21 +1805,50 @@ function SignInView() {
               transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
               className="mb-8"
             >
-              <img src="/alifaain-logo.jpg" alt="Alifaain" className="size-24 rounded-full mx-auto ring-4 ring-white/30 shadow-2xl object-cover" />
+              {loginType === 'admin' ? (
+                <div className="size-24 rounded-2xl mx-auto bg-white/15 backdrop-blur-sm flex items-center justify-center ring-4 ring-white/20 shadow-2xl">
+                  <ShieldCheck className="size-12 text-white" />
+                </div>
+              ) : (
+                <img src="/alifaain-logo.jpg" alt="Alifaain" className="size-24 rounded-full mx-auto ring-4 ring-white/30 shadow-2xl object-cover" />
+              )}
             </motion.div>
-            <h2 className="font-serif text-3xl font-bold mb-3">Welcome Back</h2>
-            <p className="text-white/80 text-sm leading-relaxed max-w-[260px] mx-auto">
-              Sign in to your Alifaain account and explore our premium beauty collections.
-            </p>
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={loginType}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.3 }}
+              >
+                <h2 className="font-serif text-3xl font-bold mb-3">
+                  {loginType === 'admin' ? 'Admin Portal' : 'Welcome Back'}
+                </h2>
+                <p className="text-white/80 text-sm leading-relaxed max-w-[260px] mx-auto">
+                  {loginType === 'admin'
+                    ? 'Secure access to your dashboard. Manage products, orders, and more.'
+                    : 'Sign in to your Alifaain account and explore our premium beauty collections.'}
+                </p>
+              </motion.div>
+            </AnimatePresence>
             <div className="mt-8 flex items-center justify-center gap-4">
-              <div className="flex -space-x-2">
-                {['🇲🇦', '🇰🇷', '💊'].map((emoji, i) => (
-                  <div key={i} className="size-9 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center text-sm ring-2 ring-white/30">
-                    {emoji}
+              {loginType === 'admin' ? (
+                <div className="flex items-center gap-2 text-white/60 text-xs">
+                  <Lock className="size-4" />
+                  <span>Secured admin access</span>
+                </div>
+              ) : (
+                <>
+                  <div className="flex -space-x-2">
+                    {['🇲🇦', '🇰🇷', '💊'].map((emoji, i) => (
+                      <div key={i} className="size-9 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center text-sm ring-2 ring-white/30">
+                        {emoji}
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-              <span className="text-white/70 text-xs">Trusted by thousands</span>
+                  <span className="text-white/70 text-xs">Trusted by thousands</span>
+                </>
+              )}
             </div>
           </div>
         </motion.div>
@@ -1806,30 +1863,72 @@ function SignInView() {
           <div className="gradient-border rounded-2xl lg:rounded-l-none">
             <Card className="border-0 shadow-xl">
               {/* Mobile Header */}
-              <div className="lg:hidden relative bg-gradient-to-r from-amber-600 via-orange-500 to-yellow-500 p-6 rounded-t-xl">
+              <div className={`lg:hidden relative bg-gradient-to-r ${mobileGradient} p-6 rounded-t-xl`}>
                 <div className="absolute inset-0 bg-black/10 rounded-t-xl" />
                 <div className="relative z-10 flex items-center gap-4">
                   <motion.div
                     animate={{ y: [0, -5, 0] }}
                     transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}
                   >
-                    <img src="/alifaain-logo.jpg" alt="Alifaain" className="size-14 rounded-full ring-2 ring-white/30 shadow-lg object-cover" />
+                    {loginType === 'admin' ? (
+                      <div className="size-14 rounded-xl bg-white/15 backdrop-blur-sm flex items-center justify-center ring-2 ring-white/30 shadow-lg">
+                        <ShieldCheck className="size-7 text-white" />
+                      </div>
+                    ) : (
+                      <img src="/alifaain-logo.jpg" alt="Alifaain" className="size-14 rounded-full ring-2 ring-white/30 shadow-lg object-cover" />
+                    )}
                   </motion.div>
                   <div className="text-white">
-                    <h2 className="font-serif text-2xl font-bold">Welcome Back</h2>
-                    <p className="text-white/80 text-sm">Sign in to your Alifaain account</p>
+                    <h2 className="font-serif text-2xl font-bold">{loginType === 'admin' ? 'Admin Portal' : 'Welcome Back'}</h2>
+                    <p className="text-white/80 text-sm">{loginType === 'admin' ? 'Sign in to admin dashboard' : 'Sign in to your Alifaain account'}</p>
                   </div>
                 </div>
               </div>
 
-              <CardHeader className="text-center pb-2 hidden lg:block">
-                <div className="mx-auto mb-4 size-14 rounded-full bg-primary/10 flex items-center justify-center">
-                  <LogIn className="size-7 text-primary" />
+              <CardHeader className="text-center pb-0 hidden lg:block">
+                <div className={`mx-auto mb-4 size-14 rounded-full flex items-center justify-center ${loginType === 'admin' ? 'bg-slate-100 dark:bg-slate-800' : 'bg-primary/10'}`}>
+                  {loginType === 'admin' ? (
+                    <ShieldCheck className="size-7 text-slate-600 dark:text-slate-300" />
+                  ) : (
+                    <LogIn className="size-7 text-primary" />
+                  )}
                 </div>
-                <CardTitle className="font-serif text-2xl">Welcome Back</CardTitle>
-                <CardDescription>Sign in to your Alifaain account</CardDescription>
+                <CardTitle className="font-serif text-2xl">
+                  {loginType === 'admin' ? 'Admin Portal' : 'Welcome Back'}
+                </CardTitle>
+                <CardDescription>
+                  {loginType === 'admin' ? 'Sign in to admin dashboard' : 'Sign in to your Alifaain account'}
+                </CardDescription>
               </CardHeader>
               <CardContent className="pt-4">
+                {/* Login Type Tabs */}
+                <div className="flex rounded-lg bg-muted p-1 mb-6">
+                  <button
+                    type="button"
+                    onClick={switchToCustomer}
+                    className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-md text-sm font-medium transition-all ${
+                      loginType === 'customer'
+                        ? 'bg-card text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <UserCircle className="size-4" />
+                    Customer
+                  </button>
+                  <button
+                    type="button"
+                    onClick={switchToAdmin}
+                    className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-md text-sm font-medium transition-all ${
+                      loginType === 'admin'
+                        ? 'bg-card text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <ShieldCheck className="size-4" />
+                    Admin
+                  </button>
+                </div>
+
                 <form onSubmit={handleSubmit} className="space-y-4">
                   <AnimatePresence>
                     {error && (
@@ -1846,13 +1945,15 @@ function SignInView() {
                   </AnimatePresence>
 
                   <div className="space-y-2">
-                    <Label htmlFor="email">Email Address</Label>
+                    <Label htmlFor="email">
+                      {loginType === 'admin' ? 'Admin Email' : 'Email Address'}
+                    </Label>
                     <div className="relative">
                       <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
                       <Input
                         id="email"
                         type="email"
-                        placeholder="you@example.com"
+                        placeholder={loginType === 'admin' ? 'admin@alifaain.com' : 'you@example.com'}
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         className="pl-9"
@@ -1870,7 +1971,7 @@ function SignInView() {
                       <Input
                         id="password"
                         type={showPassword ? 'text' : 'password'}
-                        placeholder="Enter your password"
+                        placeholder={loginType === 'admin' ? 'Enter admin password' : 'Enter your password'}
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         className="pl-9 pr-10"
@@ -1886,38 +1987,75 @@ function SignInView() {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <Checkbox
-                      id="remember"
-                      checked={rememberMe}
-                      onCheckedChange={(checked) => setRememberMe(checked as boolean)}
-                    />
-                    <Label htmlFor="remember" className="text-sm text-muted-foreground cursor-pointer">
-                      Remember me
-                    </Label>
-                  </div>
+                  {loginType === 'customer' && (
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="remember"
+                        checked={rememberMe}
+                        onCheckedChange={(checked) => setRememberMe(checked as boolean)}
+                      />
+                      <Label htmlFor="remember" className="text-sm text-muted-foreground cursor-pointer">
+                        Remember me
+                      </Label>
+                    </div>
+                  )}
 
-                  <Button type="submit" className="w-full" size="lg" disabled={loading}>
+                  <Button
+                    type="submit"
+                    className={`w-full ${loginType === 'admin' ? 'bg-slate-800 hover:bg-slate-700 dark:bg-slate-700 dark:hover:bg-slate-600' : ''}`}
+                    size="lg"
+                    disabled={loading}
+                  >
                     {loading ? (
                       <div className="size-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                     ) : (
                       <>
-                        <LogIn className="size-4 mr-2" /> Sign In
+                        {loginType === 'admin' ? (
+                          <><ShieldCheck className="size-4 mr-2" /> Sign In as Admin</>
+                        ) : (
+                          <><LogIn className="size-4 mr-2" /> Sign In</>
+                        )}
                       </>
                     )}
                   </Button>
+
+                  {/* Admin demo credentials hint */}
+                  {loginType === 'admin' && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.3 }}
+                      className="rounded-lg border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-900/20 p-3"
+                    >
+                      <div className="flex items-start gap-2">
+                        <AlertCircle className="size-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-xs font-medium text-amber-800 dark:text-amber-300">Demo Credentials</p>
+                          <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-0.5 font-mono">
+                            admin@alifaain.com / admin123
+                          </p>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
                 </form>
               </CardContent>
               <CardFooter className="justify-center border-t pt-6">
-                <p className="text-sm text-muted-foreground">
-                  Don&apos;t have an account?{' '}
-                  <button
-                    onClick={() => setView({ view: 'signup' })}
-                    className="text-primary font-semibold hover:underline"
-                  >
-                    Create one
-                  </button>
-                </p>
+                {loginType === 'customer' ? (
+                  <p className="text-sm text-muted-foreground">
+                    Don&apos;t have an account?{' '}
+                    <button
+                      onClick={() => setView({ view: 'signup' })}
+                      className="text-primary font-semibold hover:underline"
+                    >
+                      Create one
+                    </button>
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Admin access is restricted to authorized personnel only.
+                  </p>
+                )}
               </CardFooter>
             </Card>
           </div>
