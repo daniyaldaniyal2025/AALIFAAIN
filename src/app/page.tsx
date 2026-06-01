@@ -19,6 +19,8 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Slider } from '@/components/ui/slider'
 import { Label } from '@/components/ui/label'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
+import { Textarea } from '@/components/ui/textarea'
 import {
   ShoppingCart, Sun, Moon, Menu, Home, Store, ShieldCheck, Truck, CreditCard, Star,
   Plus, Minus, Trash2, ArrowLeft, Search, ChevronDown, Package, DollarSign,
@@ -26,7 +28,7 @@ import {
   X, ShoppingBag, CheckCircle2, ArrowRight, Sparkles, Heart, Eye, Filter,
   BarChart3, Boxes, ClipboardList, RefreshCw, Globe, ChevronRight, LogIn,
   LogOut, UserCircle, UserPlus, Lock, AlertCircle, Check,
-  EyeOff, Save, Calendar
+  EyeOff, Save, Calendar, Pencil, ToggleLeft, ToggleRight, ImagePlus
 } from 'lucide-react'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
@@ -1517,16 +1519,67 @@ function AdminDashboard() {
 
 // ─── Admin Products View ─────────────────────────────────────────────────────
 
-function AdminProducts({ products }: { products: Product[] }) {
+interface CategoryOption {
+  id: string
+  name: string
+  slug: string
+  _count?: { products: number }
+}
+
+function AdminProducts({ products: initialProducts, onProductsChange }: { products: Product[]; onProductsChange?: () => void }) {
   const { selectedCountry } = useAppStore()
+  const { toast } = useToast()
+  const [products, setProducts] = useState<Product[]>(initialProducts)
+  const [categories, setCategories] = useState<CategoryOption[]>([])
   const [search, setSearch] = useState('')
   const [catFilter, setCatFilter] = useState('all')
+
+  // Dialog states
+  const [showAddDialog, setShowAddDialog] = useState(false)
+  const [showEditDialog, setShowEditDialog] = useState(false)
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [showViewDialog, setShowViewDialog] = useState(false)
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  // Form state
+  const [formName, setFormName] = useState('')
+  const [formDescription, setFormDescription] = useState('')
+  const [formPrice, setFormPrice] = useState('')
+  const [formImage, setFormImage] = useState('')
+  const [formCategoryId, setFormCategoryId] = useState('')
+  const [formStock, setFormStock] = useState('100')
+  const [formFeatured, setFormFeatured] = useState(false)
+  const [formStatus, setFormStatus] = useState('active')
+  const [formError, setFormError] = useState('')
+
+  // Fetch categories on mount
+  useEffect(() => {
+    fetch('/api/categories')
+      .then(r => r.json())
+      .then(data => { if (Array.isArray(data)) setCategories(data) })
+      .catch(() => {})
+  }, [])
+
+  // Sync products when parent updates
+  useEffect(() => {
+    setProducts(initialProducts)
+  }, [initialProducts])
+
+  const refreshProducts = async () => {
+    try {
+      const res = await fetch('/api/products')
+      const data = await res.json()
+      if (Array.isArray(data)) setProducts(data)
+      onProductsChange?.()
+    } catch {}
+  }
 
   const filtered = useMemo(() => {
     let result = products
     if (search) {
       const q = search.toLowerCase()
-      result = result.filter(p => p.name.toLowerCase().includes(q))
+      result = result.filter(p => p.name.toLowerCase().includes(q) || p.description?.toLowerCase().includes(q))
     }
     if (catFilter !== 'all') {
       result = result.filter(p => p.category.slug === catFilter)
@@ -1534,23 +1587,258 @@ function AdminProducts({ products }: { products: Product[] }) {
     return result
   }, [products, search, catFilter])
 
-  const allCats = useMemo(() => {
-    const map = new Map<string, { slug: string; name: string }>()
-    products.forEach(p => { if (!map.has(p.category.id)) map.set(p.category.id, { slug: p.category.slug, name: p.category.name }) })
-    return Array.from(map.values())
-  }, [products])
+  const resetForm = () => {
+    setFormName('')
+    setFormDescription('')
+    setFormPrice('')
+    setFormImage('')
+    setFormCategoryId('')
+    setFormStock('100')
+    setFormFeatured(false)
+    setFormStatus('active')
+    setFormError('')
+  }
+
+  const openAddDialog = () => {
+    resetForm()
+    if (categories.length > 0 && !formCategoryId) {
+      setFormCategoryId(categories[0].id)
+    }
+    setShowAddDialog(true)
+  }
+
+  const openEditDialog = (product: Product) => {
+    setSelectedProduct(product)
+    setFormName(product.name)
+    setFormDescription(product.description || '')
+    setFormPrice(product.price.toString())
+    setFormImage(product.image || '')
+    setFormCategoryId(product.categoryId)
+    setFormStock(product.stock.toString())
+    setFormFeatured(product.featured)
+    setFormStatus(product.status)
+    setFormError('')
+    setShowEditDialog(true)
+  }
+
+  const openDeleteDialog = (product: Product) => {
+    setSelectedProduct(product)
+    setShowDeleteDialog(true)
+  }
+
+  const openViewDialog = (product: Product) => {
+    setSelectedProduct(product)
+    setShowViewDialog(true)
+  }
+
+  const handleAddProduct = async () => {
+    setFormError('')
+    if (!formName || !formPrice || !formCategoryId) {
+      setFormError('Name, price, and category are required')
+      return
+    }
+    setSaving(true)
+    try {
+      const res = await fetch('/api/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: formName,
+          description: formDescription,
+          price: formPrice,
+          image: formImage,
+          categoryId: formCategoryId,
+          stock: formStock,
+          featured: formFeatured,
+          status: formStatus,
+        }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        toast({ title: 'Product created', description: `${formName} has been added successfully.` })
+        setShowAddDialog(false)
+        resetForm()
+        await refreshProducts()
+      } else {
+        setFormError(data.error || 'Failed to create product')
+      }
+    } catch {
+      setFormError('Something went wrong')
+    }
+    setSaving(false)
+  }
+
+  const handleUpdateProduct = async () => {
+    if (!selectedProduct) return
+    setFormError('')
+    if (!formName || !formPrice || !formCategoryId) {
+      setFormError('Name, price, and category are required')
+      return
+    }
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/products/${selectedProduct.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: formName,
+          description: formDescription,
+          price: formPrice,
+          image: formImage,
+          categoryId: formCategoryId,
+          stock: formStock,
+          featured: formFeatured,
+          status: formStatus,
+        }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        toast({ title: 'Product updated', description: `${formName} has been updated successfully.` })
+        setShowEditDialog(false)
+        resetForm()
+        setSelectedProduct(null)
+        await refreshProducts()
+      } else {
+        setFormError(data.error || 'Failed to update product')
+      }
+    } catch {
+      setFormError('Something went wrong')
+    }
+    setSaving(false)
+  }
+
+  const handleDeleteProduct = async () => {
+    if (!selectedProduct) return
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/products/${selectedProduct.id}`, { method: 'DELETE' })
+      if (res.ok) {
+        toast({ title: 'Product deleted', description: `${selectedProduct.name} has been removed.`, variant: 'destructive' })
+        setShowDeleteDialog(false)
+        setSelectedProduct(null)
+        await refreshProducts()
+      } else {
+        const data = await res.json()
+        toast({ title: 'Error', description: data.error || 'Failed to delete product', variant: 'destructive' })
+      }
+    } catch {
+      toast({ title: 'Error', description: 'Something went wrong', variant: 'destructive' })
+    }
+    setSaving(false)
+  }
+
+  const toggleProductStatus = async (product: Product) => {
+    const newStatus = product.status === 'active' ? 'inactive' : 'active'
+    try {
+      const res = await fetch(`/api/products/${product.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus }),
+      })
+      if (res.ok) {
+        toast({ title: `Product ${newStatus}`, description: `${product.name} is now ${newStatus}.` })
+        await refreshProducts()
+      }
+    } catch {}
+  }
+
+  const toggleFeatured = async (product: Product) => {
+    try {
+      const res = await fetch(`/api/products/${product.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ featured: !product.featured }),
+      })
+      if (res.ok) {
+        toast({ title: product.featured ? 'Unfeatured' : 'Featured', description: `${product.name} ${product.featured ? 'removed from' : 'added to'} featured.` })
+        await refreshProducts()
+      }
+    } catch {}
+  }
+
+  // Product Form Component (shared for Add & Edit)
+  const ProductForm = () => (
+    <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+      {formError && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
+          <AlertCircle className="size-4 shrink-0" />
+          {formError}
+        </div>
+      )}
+      <div className="space-y-2">
+        <Label htmlFor="form-name">Product Name *</Label>
+        <Input id="form-name" value={formName} onChange={e => setFormName(e.target.value)} placeholder="e.g. Argan Oil" />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="form-desc">Description</Label>
+        <Textarea id="form-desc" value={formDescription} onChange={e => setFormDescription(e.target.value)} placeholder="Product description..." rows={3} />
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="form-price">Price (SAR) *</Label>
+          <Input id="form-price" type="number" step="0.01" value={formPrice} onChange={e => setFormPrice(e.target.value)} placeholder="0.00" />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="form-stock">Stock</Label>
+          <Input id="form-stock" type="number" value={formStock} onChange={e => setFormStock(e.target.value)} placeholder="100" />
+        </div>
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="form-category">Category *</Label>
+        <Select value={formCategoryId} onValueChange={setFormCategoryId}>
+          <SelectTrigger id="form-category"><SelectValue placeholder="Select category" /></SelectTrigger>
+          <SelectContent>
+            {categories.map(c => (
+              <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="form-image">Image URL</Label>
+        <div className="relative">
+          <ImagePlus className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+          <Input id="form-image" value={formImage} onChange={e => setFormImage(e.target.value)} placeholder="https://..." className="pl-9" />
+        </div>
+        {formImage && (
+          <div className="size-20 rounded-lg border overflow-hidden mt-2">
+            <img src={formImage} alt="Preview" className="w-full h-full object-cover" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+          </div>
+        )}
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="form-status">Status</Label>
+        <Select value={formStatus} onValueChange={setFormStatus}>
+          <SelectTrigger id="form-status"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="active">Active</SelectItem>
+            <SelectItem value="inactive">Inactive</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="flex items-center gap-3">
+        <Checkbox id="form-featured" checked={formFeatured} onCheckedChange={(checked) => setFormFeatured(checked as boolean)} />
+        <Label htmlFor="form-featured" className="cursor-pointer">Featured product</Label>
+      </div>
+    </div>
+  )
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
       <motion.div {...fadeIn}>
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-8 gap-4">
           <div>
             <h1 className="font-serif text-3xl font-bold">Manage Products</h1>
             <p className="text-muted-foreground">{products.length} total products</p>
           </div>
-          <Button variant="outline" onClick={() => useAppStore.getState().setView({ view: 'admin' })}>
-            <ArrowLeft className="size-4 mr-1" /> Dashboard
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => useAppStore.getState().setView({ view: 'admin' })}>
+              <ArrowLeft className="size-4 mr-1" /> Dashboard
+            </Button>
+            <Button onClick={openAddDialog}>
+              <Plus className="size-4 mr-1" /> Add Product
+            </Button>
+          </div>
         </div>
 
         <div className="flex flex-col sm:flex-row gap-4 mb-6">
@@ -1559,12 +1847,17 @@ function AdminProducts({ products }: { products: Product[] }) {
             <Input placeholder="Search products..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
           </div>
           <Select value={catFilter} onValueChange={setCatFilter}>
-            <SelectTrigger className="w-40"><SelectValue placeholder="Category" /></SelectTrigger>
+            <SelectTrigger className="w-44"><SelectValue placeholder="Category" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Categories</SelectItem>
-              {allCats.map(c => <SelectItem key={c.slug} value={c.slug}>{c.name}</SelectItem>)}
+              {categories.map(c => (
+                <SelectItem key={c.id} value={c.slug}>{c.name} ({c._count?.products ?? 0})</SelectItem>
+              ))}
             </SelectContent>
           </Select>
+          <Button variant="outline" size="icon" onClick={refreshProducts} title="Refresh">
+            <RefreshCw className="size-4" />
+          </Button>
         </div>
 
         <Card>
@@ -1573,46 +1866,239 @@ function AdminProducts({ products }: { products: Product[] }) {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Image</TableHead>
+                    <TableHead className="w-12">Image</TableHead>
                     <TableHead>Name</TableHead>
                     <TableHead>Category</TableHead>
                     <TableHead>Price</TableHead>
                     <TableHead>Stock</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead>Featured</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filtered.map(p => (
-                    <TableRow key={p.id}>
-                      <TableCell>
-                        <div className="size-10 rounded-md overflow-hidden bg-gradient-to-br from-primary/10 to-amber-500/10">
-                          {p.image ? (
-                            <img src={p.image} alt={p.name} className="w-full h-full object-cover" />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center">
-                              <span className="text-[8px] font-bold text-primary/40">{getProductInitials(p.name)}</span>
-                            </div>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="font-medium max-w-[200px] truncate">{p.name}</TableCell>
-                      <TableCell><Badge variant="secondary" className="text-xs">{p.category.name}</Badge></TableCell>
-                      <TableCell>{formatPrice(p.price, selectedCountry)}</TableCell>
-                      <TableCell>
-                        <span className={p.stock < 10 ? 'text-destructive font-semibold' : ''}>{p.stock}</span>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={p.status === 'active' ? 'default' : 'secondary'} className="text-xs">
-                          {p.status}
-                        </Badge>
+                  {filtered.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
+                        {search || catFilter !== 'all' ? 'No products match your filters' : 'No products yet. Add your first product!'}
                       </TableCell>
                     </TableRow>
-                  ))}
+                  ) : (
+                    filtered.map(p => (
+                      <TableRow key={p.id} className="group">
+                        <TableCell>
+                          <div className="size-10 rounded-md overflow-hidden bg-gradient-to-br from-primary/10 to-amber-500/10 shrink-0">
+                            {p.image ? (
+                              <img src={p.image} alt={p.name} className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center">
+                                <span className="text-[8px] font-bold text-primary/40">{getProductInitials(p.name)}</span>
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <button onClick={() => openViewDialog(p)} className="font-medium text-sm hover:text-primary transition-colors text-left max-w-[200px] truncate block">
+                            {p.name}
+                          </button>
+                          {p.description && (
+                            <p className="text-xs text-muted-foreground truncate max-w-[200px]">{p.description}</p>
+                          )}
+                        </TableCell>
+                        <TableCell><Badge variant="secondary" className="text-xs">{p.category.name}</Badge></TableCell>
+                        <TableCell className="font-semibold">{formatPrice(p.price, selectedCountry)}</TableCell>
+                        <TableCell>
+                          <span className={`text-sm ${p.stock < 10 ? 'text-destructive font-semibold' : p.stock < 30 ? 'text-amber-600 font-medium' : ''}`}>
+                            {p.stock}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <button onClick={() => toggleProductStatus(p)} className="focus:outline-none" title={`Click to ${p.status === 'active' ? 'deactivate' : 'activate'}`}>
+                            <Badge variant={p.status === 'active' ? 'default' : 'secondary'} className="text-xs cursor-pointer hover:opacity-80 transition-opacity">
+                              {p.status}
+                            </Badge>
+                          </button>
+                        </TableCell>
+                        <TableCell>
+                          <button onClick={() => toggleFeatured(p)} className="focus:outline-none" title={`Click to ${p.featured ? 'unfeature' : 'feature'}`}>
+                            {p.featured ? (
+                              <Star className="size-4 text-amber-500 fill-amber-500" />
+                            ) : (
+                              <Star className="size-4 text-muted-foreground/40" />
+                            )}
+                          </button>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center justify-end gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
+                            <Button variant="ghost" size="icon" className="size-8" onClick={() => openViewDialog(p)} title="View">
+                              <Eye className="size-3.5" />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="size-8" onClick={() => openEditDialog(p)} title="Edit">
+                              <Pencil className="size-3.5" />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="size-8 text-destructive hover:text-destructive" onClick={() => openDeleteDialog(p)} title="Delete">
+                              <Trash2 className="size-3.5" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
                 </TableBody>
               </Table>
             </div>
           </CardContent>
         </Card>
+
+        {/* Add Product Dialog */}
+        <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="font-serif text-xl flex items-center gap-2">
+                <Plus className="size-5 text-primary" /> Add New Product
+              </DialogTitle>
+              <DialogDescription>Create a new product for your store.</DialogDescription>
+            </DialogHeader>
+            <ProductForm />
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => setShowAddDialog(false)}>Cancel</Button>
+              <Button onClick={handleAddProduct} disabled={saving}>
+                {saving ? <div className="size-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <><Plus className="size-4 mr-1" /> Add Product</>}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Edit Product Dialog */}
+        <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="font-serif text-xl flex items-center gap-2">
+                <Pencil className="size-5 text-primary" /> Edit Product
+              </DialogTitle>
+              <DialogDescription>Update product details.</DialogDescription>
+            </DialogHeader>
+            <ProductForm />
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => { setShowEditDialog(false); resetForm() }}>Cancel</Button>
+              <Button onClick={handleUpdateProduct} disabled={saving}>
+                {saving ? <div className="size-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <><Save className="size-4 mr-1" /> Save Changes</>}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Delete Product Dialog */}
+        <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="font-serif text-xl flex items-center gap-2 text-destructive">
+                <Trash2 className="size-5" /> Delete Product
+              </DialogTitle>
+              <DialogDescription>This action cannot be undone.</DialogDescription>
+            </DialogHeader>
+            {selectedProduct && (
+              <div className="py-4">
+                <div className="flex items-center gap-4 p-4 rounded-lg border bg-destructive/5">
+                  <div className="size-14 rounded-md overflow-hidden bg-gradient-to-br from-primary/10 to-amber-500/10 shrink-0">
+                    {selectedProduct.image ? (
+                      <img src={selectedProduct.image} alt={selectedProduct.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <Package className="size-6 text-primary/40" />
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <p className="font-semibold">{selectedProduct.name}</p>
+                    <p className="text-sm text-muted-foreground">{selectedProduct.category.name} • {formatPrice(selectedProduct.price, selectedCountry)}</p>
+                  </div>
+                </div>
+                <p className="text-sm text-muted-foreground mt-3">Are you sure you want to delete <strong>{selectedProduct.name}</strong>? All associated order items will also be removed.</p>
+              </div>
+            )}
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => setShowDeleteDialog(false)}>Cancel</Button>
+              <Button variant="destructive" onClick={handleDeleteProduct} disabled={saving}>
+                {saving ? <div className="size-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <><Trash2 className="size-4 mr-1" /> Delete</>}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* View Product Dialog */}
+        <Dialog open={showViewDialog} onOpenChange={setShowViewDialog}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="font-serif text-xl flex items-center gap-2">
+                <Eye className="size-5 text-primary" /> Product Details
+              </DialogTitle>
+              <DialogDescription>Full product information.</DialogDescription>
+            </DialogHeader>
+            {selectedProduct && (
+              <div className="space-y-4">
+                <div className="flex gap-4">
+                  <div className="size-28 rounded-xl overflow-hidden bg-gradient-to-br from-primary/10 to-amber-500/10 shrink-0">
+                    {selectedProduct.image ? (
+                      <img src={selectedProduct.image} alt={selectedProduct.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className={`w-full h-full bg-gradient-to-br ${getGradientForCategory(selectedProduct.category.slug)} flex items-center justify-center`}>
+                        <span className="text-2xl font-bold text-white/30 font-serif">{getProductInitials(selectedProduct.name)}</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-serif font-bold text-lg">{selectedProduct.name}</h3>
+                    <Badge variant="secondary" className="text-xs mt-1">{selectedProduct.category.name}</Badge>
+                    <div className="flex items-center gap-2 mt-2">
+                      <Badge variant={selectedProduct.status === 'active' ? 'default' : 'secondary'} className="text-xs">{selectedProduct.status}</Badge>
+                      {selectedProduct.featured && (
+                        <Badge className="text-xs bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border-0">
+                          <Star className="size-3 mr-1 fill-amber-500 text-amber-500" /> Featured
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                {selectedProduct.description && (
+                  <div>
+                    <p className="text-sm font-medium mb-1">Description</p>
+                    <p className="text-sm text-muted-foreground">{selectedProduct.description}</p>
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-4">
+                  <Card>
+                    <CardContent className="p-3 text-center">
+                      <p className="text-xs text-muted-foreground">Price</p>
+                      <p className="font-bold text-primary">{formatPrice(selectedProduct.price, selectedCountry)}</p>
+                      <p className="text-[10px] text-muted-foreground">{selectedProduct.price} SAR</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="p-3 text-center">
+                      <p className="text-xs text-muted-foreground">Stock</p>
+                      <p className={`font-bold ${selectedProduct.stock < 10 ? 'text-destructive' : selectedProduct.stock < 30 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                        {selectedProduct.stock} units
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">{selectedProduct.stock < 10 ? 'Low stock!' : 'In stock'}</p>
+                    </CardContent>
+                  </Card>
+                </div>
+                <div className="text-xs text-muted-foreground space-y-1">
+                  <p>Slug: <span className="font-mono">{selectedProduct.slug}</span></p>
+                  <p>ID: <span className="font-mono">{selectedProduct.id}</span></p>
+                  <p>Created: {new Date(selectedProduct.createdAt).toLocaleDateString()}</p>
+                </div>
+              </div>
+            )}
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => { setShowViewDialog(false); if (selectedProduct) openEditDialog(selectedProduct) }}>
+                <Pencil className="size-4 mr-1" /> Edit
+              </Button>
+              <Button onClick={() => setShowViewDialog(false)}>Close</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </motion.div>
     </div>
   )
@@ -3061,6 +3547,14 @@ export default function AlifaainPage() {
     }
   }, [seeded])
 
+  // Refresh products (called after admin CRUD operations)
+  const refreshProducts = useCallback(() => {
+    fetch('/api/products')
+      .then(r => r.json())
+      .then(data => { if (Array.isArray(data)) setProducts(data) })
+      .catch(() => {})
+  }, [])
+
   // Scroll to top on view change
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -3102,7 +3596,7 @@ export default function AlifaainPage() {
       case 'admin':
         return <AdminGuard><AdminDashboard /></AdminGuard>
       case 'admin-products':
-        return <AdminGuard><AdminProducts products={products} /></AdminGuard>
+        return <AdminGuard><AdminProducts products={products} onProductsChange={refreshProducts} /></AdminGuard>
       case 'admin-orders':
         return <AdminGuard><AdminOrders /></AdminGuard>
       default:
