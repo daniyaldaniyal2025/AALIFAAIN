@@ -504,6 +504,7 @@ const promoBanners = [
     emoji: '🇲🇦',
     cta: 'Shop Morocco',
     category: 'morocco',
+    image: '/images/banners/morocco-banner.png',
   },
   {
     id: 2,
@@ -514,6 +515,7 @@ const promoBanners = [
     emoji: '🇰🇷',
     cta: 'Shop Korea',
     category: 'korea',
+    image: '/images/banners/korea-banner.png',
   },
   {
     id: 3,
@@ -524,6 +526,7 @@ const promoBanners = [
     emoji: '💊',
     cta: 'Shop Supplements',
     category: 'supplements',
+    image: '/images/banners/supplements-banner.png',
   },
   {
     id: 4,
@@ -534,6 +537,7 @@ const promoBanners = [
     emoji: '🚚',
     cta: 'Start Shopping',
     category: '',
+    image: '/images/banners/shipping-banner.png',
   },
 ]
 
@@ -559,66 +563,74 @@ function PromoBannerSlider() {
   return (
     <section className="py-8 sm:py-12">
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
-        <div className="relative overflow-hidden rounded-2xl">
+        <div className="relative overflow-hidden rounded-2xl min-h-[280px] sm:min-h-[340px] lg:min-h-[400px]">
           <AnimatePresence mode="wait">
             <motion.div
               key={current}
-              initial={{ opacity: 0, x: 80 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -80 }}
-              transition={{ duration: 0.5, ease: 'easeInOut' }}
-              className={`relative bg-gradient-to-r ${promoBanners[current].gradient} p-8 sm:p-12 lg:p-16 text-white overflow-hidden`}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.6, ease: 'easeInOut' }}
+              className="absolute inset-0"
             >
-              {/* Decorative elements */}
-              <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/3" />
-              <div className="absolute bottom-0 left-1/3 w-48 h-48 bg-white/5 rounded-full translate-y-1/2" />
-              <div className="absolute top-1/2 right-1/4 text-[120px] opacity-10 select-none">{promoBanners[current].emoji}</div>
+              {/* Background Image */}
+              <img
+                src={promoBanners[current].image}
+                alt={promoBanners[current].title}
+                className="absolute inset-0 w-full h-full object-cover"
+              />
+              {/* Gradient Overlay - stronger on left for text readability */}
+              <div className={`absolute inset-0 bg-gradient-to-r ${promoBanners[current].gradient} opacity-70`} />
+              <div className="absolute inset-0 bg-gradient-to-r from-black/60 via-black/30 to-transparent" />
 
-              <div className="relative z-10 max-w-xl">
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.2 }}
-                >
-                  <Badge className="bg-white/20 text-white border-0 text-sm mb-4 backdrop-blur-sm">
-                    {promoBanners[current].emoji} {promoBanners[current].subtitle}
-                  </Badge>
-                </motion.div>
-                <motion.h2
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.3 }}
-                  className="font-serif text-3xl sm:text-4xl lg:text-5xl font-bold mb-4"
-                >
-                  {promoBanners[current].title}
-                </motion.h2>
-                <motion.p
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.4 }}
-                  className="text-white/80 text-base sm:text-lg mb-6 max-w-md"
-                >
-                  {promoBanners[current].description}
-                </motion.p>
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.5 }}
-                >
-                  <Button
-                    size="lg"
-                    className="bg-white text-gray-900 hover:bg-white/90 font-semibold gap-2"
-                    onClick={() => handleCta(promoBanners[current].category)}
+              {/* Content */}
+              <div className="relative z-10 h-full flex items-center p-8 sm:p-12 lg:p-16">
+                <div className="max-w-xl">
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.2 }}
                   >
-                    {promoBanners[current].cta} <ArrowRight className="size-4" />
-                  </Button>
-                </motion.div>
+                    <Badge className="bg-white/20 text-white border-0 text-sm mb-4 backdrop-blur-sm">
+                      {promoBanners[current].emoji} {promoBanners[current].subtitle}
+                    </Badge>
+                  </motion.div>
+                  <motion.h2
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.3 }}
+                    className="font-serif text-3xl sm:text-4xl lg:text-5xl font-bold mb-4 text-white"
+                  >
+                    {promoBanners[current].title}
+                  </motion.h2>
+                  <motion.p
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.4 }}
+                    className="text-white/80 text-base sm:text-lg mb-6 max-w-md"
+                  >
+                    {promoBanners[current].description}
+                  </motion.p>
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.5 }}
+                  >
+                    <Button
+                      size="lg"
+                      className="bg-white text-gray-900 hover:bg-white/90 font-semibold gap-2"
+                      onClick={() => handleCta(promoBanners[current].category)}
+                    >
+                      {promoBanners[current].cta} <ArrowRight className="size-4" />
+                    </Button>
+                  </motion.div>
+                </div>
               </div>
             </motion.div>
           </AnimatePresence>
 
-          {/* Slider Controls */}
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3">
+          {/* Slider Controls - Dots */}
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3 z-20">
             {promoBanners.map((_, idx) => (
               <button
                 key={idx}
@@ -635,13 +647,13 @@ function PromoBannerSlider() {
           {/* Arrow Controls */}
           <button
             onClick={() => setCurrent(prev => (prev - 1 + promoBanners.length) % promoBanners.length)}
-            className="absolute left-3 top-1/2 -translate-y-1/2 size-10 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center text-white hover:bg-white/30 transition-colors"
+            className="absolute left-3 top-1/2 -translate-y-1/2 size-10 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center text-white hover:bg-white/30 transition-colors z-20"
           >
             <ChevronLeft className="size-5" />
           </button>
           <button
             onClick={() => setCurrent(prev => (prev + 1) % promoBanners.length)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 size-10 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center text-white hover:bg-white/30 transition-colors"
+            className="absolute right-3 top-1/2 -translate-y-1/2 size-10 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center text-white hover:bg-white/30 transition-colors z-20"
           >
             <ChevronRight className="size-5" />
           </button>
