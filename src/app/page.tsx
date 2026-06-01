@@ -28,7 +28,8 @@ import {
   X, ShoppingBag, CheckCircle2, ArrowRight, Sparkles, Heart, Eye, Filter,
   BarChart3, Boxes, ClipboardList, RefreshCw, Globe, ChevronRight, ChevronLeft, LogIn,
   LogOut, UserCircle, UserPlus, Lock, AlertCircle, Check,
-  EyeOff, Save, Calendar, Pencil, ToggleLeft, ToggleRight, ImagePlus, Upload, ImageIcon
+  EyeOff, Save, Calendar, Pencil, ToggleLeft, ToggleRight, ImagePlus, Upload, ImageIcon,
+  Info, MessageSquare, Send, Award, Target, Leaf, Handshake, Building2
 } from 'lucide-react'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
@@ -169,11 +170,13 @@ function Header() {
   const navItems = [
     { label: 'Home', view: 'home' as const, icon: Home },
     { label: 'Shop', view: 'products' as const, icon: Store },
+    { label: 'About', view: 'about' as const, icon: Info },
+    { label: 'Contact', view: 'contact' as const, icon: MessageSquare },
     { label: 'Cart', view: 'cart' as const, icon: ShoppingCart, badge: totalItems },
     ...(user?.role === 'admin' ? [{ label: 'Admin', view: 'admin' as const, icon: BarChart3 }] : []),
   ]
 
-  const handleNav = (view: 'home' | 'products' | 'cart' | 'admin') => {
+  const handleNav = (view: 'home' | 'products' | 'cart' | 'admin' | 'about' | 'contact') => {
     setView({ view })
     setMobileOpen(false)
   }
@@ -446,6 +449,8 @@ function Footer() {
               {[
                 { label: 'Home', view: 'home' as const },
                 { label: 'Shop All', view: 'products' as const },
+                { label: 'About Us', view: 'about' as const },
+                { label: 'Contact', view: 'contact' as const },
                 { label: 'Cart', view: 'cart' as const },
               ].map(l => (
                 <li key={l.view}>
@@ -990,6 +995,532 @@ function ProductCard({ product }: { product: Product }) {
         </CardContent>
       </Card>
     </motion.div>
+  )
+}
+
+// ─── About View ──────────────────────────────────────────────────────────────
+
+function AboutView() {
+  const { setView } = useAppStore()
+
+  return (
+    <div>
+      {/* Hero Section */}
+      <section className="relative overflow-hidden py-20 sm:py-28">
+        <div className="absolute inset-0">
+          <img src="/images/about/our-story.png" alt="Our Story" className="w-full h-full object-cover" />
+          <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/50 to-black/30" />
+        </div>
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6">
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6 }}
+            className="max-w-2xl"
+          >
+            <Badge className="mb-4 bg-primary/90 text-primary-foreground border-0">
+              <Sparkles className="size-3.5 mr-1.5" /> Our Story
+            </Badge>
+            <h1 className="font-serif text-4xl sm:text-5xl lg:text-6xl font-bold mb-6 text-white leading-tight">
+              Where Ancient Traditions Meet{' '}
+              <span className="gold-text">Modern Beauty</span>
+            </h1>
+            <p className="text-white/80 text-lg sm:text-xl mb-8 max-w-lg">
+              Born from a passion for authentic beauty rituals, Alifaain bridges the timeless traditions of Morocco with the innovative science of Korean skincare.
+            </p>
+          </motion.div>
+        </div>
+      </section>
+
+      {/* Our Story Section */}
+      <section className="py-16 sm:py-20">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+            <motion.div
+              initial={{ opacity: 0, x: -30 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5 }}
+            >
+              <div className="relative rounded-2xl overflow-hidden shadow-2xl">
+                <img src="/images/about/our-story.png" alt="Alifaain Beauty Products" className="w-full h-auto object-cover" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent" />
+              </div>
+            </motion.div>
+            <motion.div
+              initial={{ opacity: 0, x: 30 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5, delay: 0.2 }}
+            >
+              <Badge variant="secondary" className="mb-4">
+                <Info className="size-3.5 mr-1.5" /> About Alifaain
+              </Badge>
+              <h2 className="font-serif text-3xl sm:text-4xl font-bold mb-6">
+                A Journey of <span className="gold-text">Beauty & Heritage</span>
+              </h2>
+              <p className="text-muted-foreground mb-4 leading-relaxed">
+                Alifaain was founded with a simple yet powerful vision — to bring the world&apos;s most authentic and effective beauty traditions to your doorstep. Our name, meaning &ldquo;thousands&rdquo; in Arabic, represents the thousands of women across generations who have perfected these beauty rituals.
+              </p>
+              <p className="text-muted-foreground mb-4 leading-relaxed">
+                From the argan forests of Morocco to the cutting-edge laboratories of Seoul, we curate only the finest products that honor traditional wisdom while embracing modern innovation. Every product in our collection tells a story of heritage, quality, and transformation.
+              </p>
+              <p className="text-muted-foreground mb-6 leading-relaxed">
+                Based in Riyadh, Saudi Arabia, we serve beauty enthusiasts across the region and beyond, delivering premium skincare, traditional beauty essentials, and wellness supplements with care and authenticity.
+              </p>
+              <div className="flex flex-wrap gap-4">
+                <Button onClick={() => setView({ view: 'products' })} className="gap-2">
+                  Explore Products <ArrowRight className="size-4" />
+                </Button>
+                <Button variant="outline" onClick={() => setView({ view: 'contact' })} className="gap-2">
+                  Get in Touch <MessageSquare className="size-4" />
+                </Button>
+              </div>
+            </motion.div>
+          </div>
+        </div>
+      </section>
+
+      {/* Mission Section */}
+      <section className="py-16 sm:py-20 bg-secondary/30">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+            <motion.div
+              initial={{ opacity: 0, x: -30 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5 }}
+              className="order-2 lg:order-1"
+            >
+              <Badge variant="secondary" className="mb-4">
+                <Target className="size-3.5 mr-1.5" /> Our Mission
+              </Badge>
+              <h2 className="font-serif text-3xl sm:text-4xl font-bold mb-6">
+                Empowering Beauty Through <span className="gold-text">Authenticity</span>
+              </h2>
+              <p className="text-muted-foreground mb-6 leading-relaxed">
+                Our mission is to make authentic, time-tested beauty traditions accessible to everyone. We believe that true beauty comes from understanding and honoring the wisdom of centuries-old practices while leveraging the best of modern skincare science.
+              </p>
+              <div className="space-y-4">
+                {[
+                  { icon: ShieldCheck, title: 'Authenticity First', desc: 'Every product is sourced directly from trusted artisans and manufacturers.' },
+                  { icon: Leaf, title: 'Natural Ingredients', desc: 'We prioritize natural, sustainably-sourced ingredients in every formulation.' },
+                  { icon: Heart, title: 'Community Driven', desc: 'We support the communities and artisans who create these beauty treasures.' },
+                ].map(item => (
+                  <div key={item.title} className="flex items-start gap-4">
+                    <div className="size-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
+                      <item.icon className="size-5 text-primary" />
+                    </div>
+                    <div>
+                      <h4 className="font-semibold mb-1">{item.title}</h4>
+                      <p className="text-sm text-muted-foreground">{item.desc}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+            <motion.div
+              initial={{ opacity: 0, x: 30 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5, delay: 0.2 }}
+              className="order-1 lg:order-2"
+            >
+              <div className="relative rounded-2xl overflow-hidden shadow-2xl">
+                <img src="/images/about/mission.png" alt="Our Mission" className="w-full h-auto object-cover" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent" />
+              </div>
+            </motion.div>
+          </div>
+        </div>
+      </section>
+
+      {/* Stats Section */}
+      <section className="py-16 sm:py-20">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6">
+          <motion.div {...fadeIn} viewport={{ once: true }} className="text-center mb-12">
+            <h2 className="font-serif text-3xl sm:text-4xl font-bold mb-4">Alifaain in Numbers</h2>
+            <p className="text-muted-foreground max-w-xl mx-auto">Growing every day with the trust of our valued customers</p>
+          </motion.div>
+          <motion.div
+            variants={staggerContainer}
+            initial="initial"
+            whileInView="animate"
+            viewport={{ once: true }}
+            className="grid grid-cols-2 sm:grid-cols-4 gap-6"
+          >
+            {[
+              { icon: ShoppingBag, value: '44+', label: 'Premium Products' },
+              { icon: Globe, value: '21+', label: 'Countries Served' },
+              { icon: Users, value: '5000+', label: 'Happy Customers' },
+              { icon: Award, value: '100%', label: 'Authentic & Genuine' },
+            ].map(stat => (
+              <motion.div key={stat.label} variants={staggerItem}>
+                <Card className="text-center h-full gradient-border hover:shadow-lg transition-shadow">
+                  <CardContent className="pt-8 pb-6 flex flex-col items-center">
+                    <div className="size-14 rounded-full bg-primary/10 flex items-center justify-center mb-4">
+                      <stat.icon className="size-7 text-primary" />
+                    </div>
+                    <p className="font-serif text-3xl sm:text-4xl font-bold gold-text mb-2">{stat.value}</p>
+                    <p className="text-sm text-muted-foreground">{stat.label}</p>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            ))}
+          </motion.div>
+        </div>
+      </section>
+
+      {/* Team Section */}
+      <section className="py-16 sm:py-20 bg-secondary/30">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+            <motion.div
+              initial={{ opacity: 0, x: -30 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5 }}
+            >
+              <div className="relative rounded-2xl overflow-hidden shadow-2xl">
+                <img src="/images/about/team.png" alt="Our Team" className="w-full h-auto object-cover" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent" />
+              </div>
+            </motion.div>
+            <motion.div
+              initial={{ opacity: 0, x: 30 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5, delay: 0.2 }}
+            >
+              <Badge variant="secondary" className="mb-4">
+                <Users className="size-3.5 mr-1.5" /> Our Team
+              </Badge>
+              <h2 className="font-serif text-3xl sm:text-4xl font-bold mb-6">
+                Passionate Experts, <span className="gold-text">Dedicated to You</span>
+              </h2>
+              <p className="text-muted-foreground mb-4 leading-relaxed">
+                Behind Alifaain is a dedicated team of beauty enthusiasts, skincare experts, and customer care professionals who share one common goal — helping you discover your best self.
+              </p>
+              <p className="text-muted-foreground mb-6 leading-relaxed">
+                Our team includes certified dermatologists, traditional beauty practitioners, and product specialists who carefully vet every item in our collection. We personally test and approve each product to ensure it meets our high standards of quality and authenticity.
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                {[
+                  { icon: Handshake, label: 'Trusted Partners' },
+                  { icon: Award, label: 'Quality Certified' },
+                  { icon: Star, label: 'Expert Curated' },
+                  { icon: ShieldCheck, label: 'Verified Authentic' },
+                ].map(item => (
+                  <div key={item.label} className="flex items-center gap-2 p-3 rounded-lg bg-background">
+                    <item.icon className="size-5 text-primary shrink-0" />
+                    <span className="text-sm font-medium">{item.label}</span>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          </div>
+        </div>
+      </section>
+
+      {/* CTA Section */}
+      <section className="py-16 sm:py-20">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6">
+          <motion.div
+            {...fadeIn}
+            viewport={{ once: true }}
+            className="relative rounded-2xl overflow-hidden p-8 sm:p-12 lg:p-16 text-center"
+          >
+            <div className="absolute inset-0 bg-gradient-to-r from-primary via-amber-600 to-primary" />
+            <div className="absolute inset-0 bg-black/20" />
+            <div className="relative z-10">
+              <h2 className="font-serif text-3xl sm:text-4xl font-bold text-white mb-4">
+                Ready to Experience the Difference?
+              </h2>
+              <p className="text-white/80 text-lg max-w-xl mx-auto mb-8">
+                Discover our curated collection of authentic Moroccan and innovative Korean beauty products.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                <Button
+                  size="lg"
+                  className="bg-white text-gray-900 hover:bg-white/90 font-semibold gap-2"
+                  onClick={() => setView({ view: 'products' })}
+                >
+                  Shop Now <ArrowRight className="size-4" />
+                </Button>
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="border-white/30 text-white hover:bg-white/10 gap-2"
+                  onClick={() => setView({ view: 'contact' })}
+                >
+                  Contact Us <MessageSquare className="size-4" />
+                </Button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+// ─── Contact View ─────────────────────────────────────────────────────────────
+
+function ContactView() {
+  const { toast } = useToast()
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    subject: '',
+    message: '',
+  })
+  const [sending, setSending] = useState(false)
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    setSending(true)
+    // Simulate sending
+    setTimeout(() => {
+      setSending(false)
+      setFormData({ name: '', email: '', subject: '', message: '' })
+      toast({
+        title: 'Message Sent!',
+        description: 'Thank you for reaching out. We\'ll get back to you within 24 hours.',
+      })
+    }, 1500)
+  }
+
+  return (
+    <div>
+      {/* Hero Section */}
+      <section className="relative overflow-hidden py-20 sm:py-28">
+        <div className="absolute inset-0">
+          <img src="/images/contact/hero.png" alt="Contact Us" className="w-full h-full object-cover" />
+          <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/50 to-black/30" />
+        </div>
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6">
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6 }}
+            className="max-w-2xl"
+          >
+            <Badge className="mb-4 bg-primary/90 text-primary-foreground border-0">
+              <MessageSquare className="size-3.5 mr-1.5" /> Get in Touch
+            </Badge>
+            <h1 className="font-serif text-4xl sm:text-5xl lg:text-6xl font-bold mb-6 text-white leading-tight">
+              We&apos;d Love to <span className="gold-text">Hear From You</span>
+            </h1>
+            <p className="text-white/80 text-lg sm:text-xl mb-8 max-w-lg">
+              Whether you have a question about our products, need skincare advice, or just want to say hello — we&apos;re here for you.
+            </p>
+          </motion.div>
+        </div>
+      </section>
+
+      {/* Contact Cards */}
+      <section className="py-16 sm:py-20">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6">
+          <motion.div
+            variants={staggerContainer}
+            initial="initial"
+            whileInView="animate"
+            viewport={{ once: true }}
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-16"
+          >
+            {[
+              {
+                icon: Mail,
+                title: 'Email Us',
+                detail: 'hello@alifaain.com',
+                sub: 'We reply within 24 hours',
+                color: 'bg-blue-500/10 text-blue-500',
+              },
+              {
+                icon: Phone,
+                title: 'Call Us',
+                detail: '+966 50 123 4567',
+                sub: 'Sun–Thu, 9AM–6PM AST',
+                color: 'bg-emerald-500/10 text-emerald-500',
+              },
+              {
+                icon: MapPin,
+                title: 'Visit Us',
+                detail: 'Riyadh, Saudi Arabia',
+                sub: 'King Fahd Road District',
+                color: 'bg-amber-500/10 text-amber-500',
+              },
+              {
+                icon: Clock,
+                title: 'Business Hours',
+                detail: 'Sun–Thu: 9AM–6PM',
+                sub: 'Fri–Sat: Closed',
+                color: 'bg-purple-500/10 text-purple-500',
+              },
+            ].map(item => (
+              <motion.div key={item.title} variants={staggerItem}>
+                <Card className="h-full hover:shadow-lg transition-shadow gradient-border">
+                  <CardContent className="pt-6 pb-6 flex flex-col items-center text-center">
+                    <div className={`size-14 rounded-full ${item.color} flex items-center justify-center mb-4`}>
+                      <item.icon className="size-7" />
+                    </div>
+                    <h3 className="font-serif font-semibold text-lg mb-1">{item.title}</h3>
+                    <p className="font-medium text-sm mb-1">{item.detail}</p>
+                    <p className="text-xs text-muted-foreground">{item.sub}</p>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            ))}
+          </motion.div>
+
+          {/* Contact Form + Store Image */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
+            {/* Contact Form */}
+            <motion.div
+              initial={{ opacity: 0, x: -30 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5 }}
+            >
+              <Card className="h-full">
+                <CardHeader>
+                  <CardTitle className="font-serif text-2xl">Send Us a Message</CardTitle>
+                  <CardDescription>Fill out the form below and we&apos;ll get back to you as soon as possible.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <form onSubmit={handleSubmit} className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <Label htmlFor="contact-name">Your Name</Label>
+                        <Input
+                          id="contact-name"
+                          placeholder="John Doe"
+                          value={formData.name}
+                          onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                          required
+                          className="mt-1.5"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="contact-email">Email Address</Label>
+                        <Input
+                          id="contact-email"
+                          type="email"
+                          placeholder="john@example.com"
+                          value={formData.email}
+                          onChange={e => setFormData(prev => ({ ...prev, email: e.target.value }))}
+                          required
+                          className="mt-1.5"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <Label htmlFor="contact-subject">Subject</Label>
+                      <Select value={formData.subject} onValueChange={val => setFormData(prev => ({ ...prev, subject: val }))}>
+                        <SelectTrigger className="mt-1.5">
+                          <SelectValue placeholder="Select a topic" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="general">General Inquiry</SelectItem>
+                          <SelectItem value="product">Product Question</SelectItem>
+                          <SelectItem value="order">Order Support</SelectItem>
+                          <SelectItem value="wholesale">Wholesale Inquiry</SelectItem>
+                          <SelectItem value="partnership">Partnership Opportunity</SelectItem>
+                          <SelectItem value="feedback">Feedback</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label htmlFor="contact-message">Message</Label>
+                      <Textarea
+                        id="contact-message"
+                        placeholder="Tell us how we can help..."
+                        value={formData.message}
+                        onChange={e => setFormData(prev => ({ ...prev, message: e.target.value }))}
+                        required
+                        rows={5}
+                        className="mt-1.5"
+                      />
+                    </div>
+                    <Button type="submit" size="lg" className="w-full gap-2" disabled={sending}>
+                      {sending ? (
+                        <>
+                          <RefreshCw className="size-4 animate-spin" /> Sending...
+                        </>
+                      ) : (
+                        <>
+                          <Send className="size-4" /> Send Message
+                        </>
+                      )}
+                    </Button>
+                  </form>
+                </CardContent>
+              </Card>
+            </motion.div>
+
+            {/* Store Image + Info */}
+            <motion.div
+              initial={{ opacity: 0, x: 30 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5, delay: 0.2 }}
+              className="flex flex-col gap-6"
+            >
+              <div className="relative rounded-2xl overflow-hidden shadow-2xl flex-1">
+                <img src="/images/contact/store.png" alt="Alifaain Store" className="w-full h-full object-cover min-h-[300px]" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent" />
+                <div className="absolute bottom-0 left-0 right-0 p-6 sm:p-8">
+                  <Badge className="bg-primary text-primary-foreground border-0 mb-3">
+                    <Building2 className="size-3.5 mr-1.5" /> Our Flagship Store
+                  </Badge>
+                  <h3 className="font-serif text-2xl font-bold text-white mb-2">Visit Us in Riyadh</h3>
+                  <p className="text-white/80 text-sm">King Fahd Road, Olaya District, Riyadh, Saudi Arabia</p>
+                </div>
+              </div>
+
+              {/* Social Links */}
+              <Card className="gradient-border">
+                <CardContent className="p-6">
+                  <h4 className="font-serif font-semibold text-lg mb-4">Follow Us on Social Media</h4>
+                  <p className="text-sm text-muted-foreground mb-4">Stay updated with our latest products, beauty tips, and exclusive offers.</p>
+                  <div className="flex gap-3">
+                    {[
+                      { icon: Instagram, label: 'Instagram', color: 'hover:bg-pink-500/10 hover:text-pink-500' },
+                      { icon: Twitter, label: 'Twitter', color: 'hover:bg-sky-500/10 hover:text-sky-500' },
+                      { icon: Facebook, label: 'Facebook', color: 'hover:bg-blue-500/10 hover:text-blue-500' },
+                    ].map(social => (
+                      <Button key={social.label} variant="outline" size="lg" className={`gap-2 ${social.color}`}>
+                        <social.icon className="size-5" />
+                        <span className="hidden sm:inline">{social.label}</span>
+                      </Button>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* FAQ Quick Links */}
+              <Card>
+                <CardContent className="p-6">
+                  <h4 className="font-serif font-semibold text-lg mb-4">Frequently Asked Questions</h4>
+                  <div className="space-y-3">
+                    {[
+                      { q: 'What are your shipping options?', a: 'Free shipping on orders over 200 SAR across Saudi Arabia.' },
+                      { q: 'Are your products authentic?', a: 'Yes, 100% genuine products sourced directly from trusted suppliers.' },
+                      { q: 'What is your return policy?', a: '30-day hassle-free returns on all unopened products.' },
+                    ].map(faq => (
+                      <div key={faq.q} className="p-3 rounded-lg bg-secondary/50">
+                        <p className="text-sm font-medium mb-1">{faq.q}</p>
+                        <p className="text-xs text-muted-foreground">{faq.a}</p>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+          </div>
+        </div>
+      </section>
+    </div>
   )
 }
 
@@ -4202,6 +4733,10 @@ export default function AlifaainPage() {
         return <ProductsView products={products} />
       case 'product-detail':
         return <ProductDetailView products={products} />
+      case 'about':
+        return <AboutView />
+      case 'contact':
+        return <ContactView />
       case 'cart':
         return <CartView />
       case 'checkout':

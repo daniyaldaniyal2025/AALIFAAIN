@@ -52,7 +52,7 @@ export const useCartStore = create<CartStore>()(
 )
 
 interface AppView {
-  view: 'home' | 'products' | 'product-detail' | 'cart' | 'checkout' | 'admin' | 'admin-products' | 'admin-orders' | 'signin' | 'signup' | 'profile'
+  view: 'home' | 'products' | 'product-detail' | 'cart' | 'checkout' | 'admin' | 'admin-products' | 'admin-orders' | 'signin' | 'signup' | 'profile' | 'about' | 'contact'
   params?: Record<string, string>
 }
 

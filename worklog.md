@@ -74,3 +74,38 @@ Stage Summary:
 - Hero banner image already existed and works correctly
 - Logo already existed at /alifaain-logo.jpg
 
+---
+Task ID: 3
+Agent: main
+Task: Add Contact and About pages with images
+
+Work Log:
+- Generated 5 AI images: about/our-story.png, about/team.png, about/mission.png, contact/hero.png, contact/store.png
+- Updated AppView type in app-store.ts to include about | contact views
+- Added Info and MessageSquare icons + new icons (Send, Award, Target, Leaf, Handshake, Building2) to imports
+- Added About and Contact to Header navItems
+- Updated handleNav type to include about/contact
+- Added About Us and Contact to Footer Quick Links
+- Created AboutView component with:
+  - Hero section with our-story.png background image
+  - Our Story section with image + text layout
+  - Mission section with mission.png + 3 value cards (Authenticity, Natural, Community)
+  - Stats section (44+ products, 21+ countries, 5000+ customers, 100% authentic)
+  - Team section with team.png + trust badges
+  - CTA section with gradient background
+- Created ContactView component with:
+  - Hero section with contact/hero.png background image
+  - 4 contact info cards (Email, Phone, Visit, Hours) with color-coded icons
+  - Contact form with name, email, subject (dropdown), message fields
+  - Store image card with store.png + address overlay
+  - Social media links (Instagram, Twitter, Facebook)
+  - FAQ section with 3 quick answers
+- Added about and contact cases to renderView() switch
+
+Stage Summary:
+- About and Contact pages fully implemented with AI-generated images
+- Both pages have responsive layouts, animations, and professional design
+- Navigation accessible from header, footer, and cross-links between pages
+- Contact form simulates sending with toast feedback
+- All lint checks pass, server running correctly
+
