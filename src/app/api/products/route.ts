@@ -20,7 +20,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    const { name, description, price, image, images, categoryId, featured, stock, status } = body
+    const { name, description, price, image, images, categoryId, featured, discount, stock, status } = body
 
     if (!name || !price || !categoryId) {
       return Response.json({ error: 'Name, price, and category are required' }, { status: 400 })
@@ -49,6 +49,7 @@ export async function POST(request: Request) {
         images: imagesJson,
         categoryId,
         featured: featured || false,
+        discount: discount ? parseInt(discount) : 0,
         stock: stock ? parseInt(stock) : 100,
         status: status || 'active',
       },

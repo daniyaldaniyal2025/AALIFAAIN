@@ -57,6 +57,7 @@ interface Product {
   images: string[]
   categoryId: string
   featured: boolean
+  discount: number
   stock: number
   status: string
   createdAt: string
@@ -491,6 +492,165 @@ function Footer() {
   )
 }
 
+// ─── Promo Banner Slider ────────────────────────────────────────────────────
+
+const promoBanners = [
+  {
+    id: 1,
+    title: 'Moroccan Beauty Week',
+    subtitle: 'Up to 30% OFF',
+    description: 'Discover authentic Moroccan skincare with exclusive discounts on Argan Oil, Nila Powder & more',
+    gradient: 'from-amber-600 via-orange-500 to-red-500',
+    emoji: '🇲🇦',
+    cta: 'Shop Morocco',
+    category: 'morocco',
+  },
+  {
+    id: 2,
+    title: 'K-Beauty Festival',
+    subtitle: 'Save up to 25%',
+    description: 'Premium Korean skincare essentials — Centella, Hyalu-Cica & Retinol at unbeatable prices',
+    gradient: 'from-rose-400 via-pink-500 to-fuchsia-500',
+    emoji: '🇰🇷',
+    cta: 'Shop Korea',
+    category: 'korea',
+  },
+  {
+    id: 3,
+    title: 'Wellness Sale',
+    subtitle: '20% OFF Supplements',
+    description: 'Boost your inner beauty with our premium Shilajit & wellness packs',
+    gradient: 'from-emerald-500 via-teal-500 to-cyan-500',
+    emoji: '💊',
+    cta: 'Shop Supplements',
+    category: 'supplements',
+  },
+  {
+    id: 4,
+    title: 'Free Shipping',
+    subtitle: 'Orders over 200 SAR',
+    description: 'Enjoy free delivery across Saudi Arabia on all orders above 200 SAR',
+    gradient: 'from-violet-500 via-purple-500 to-indigo-500',
+    emoji: '🚚',
+    cta: 'Start Shopping',
+    category: '',
+  },
+]
+
+function PromoBannerSlider() {
+  const [current, setCurrent] = useState(0)
+  const { setView, setSelectedCategory } = useAppStore()
+
+  // Auto-advance slider
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrent(prev => (prev + 1) % promoBanners.length)
+    }, 5000)
+    return () => clearInterval(timer)
+  }, [])
+
+  const handleCta = (category: string) => {
+    if (category) {
+      setSelectedCategory(category)
+    }
+    setView({ view: 'products' })
+  }
+
+  return (
+    <section className="py-8 sm:py-12">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6">
+        <div className="relative overflow-hidden rounded-2xl">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={current}
+              initial={{ opacity: 0, x: 80 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -80 }}
+              transition={{ duration: 0.5, ease: 'easeInOut' }}
+              className={`relative bg-gradient-to-r ${promoBanners[current].gradient} p-8 sm:p-12 lg:p-16 text-white overflow-hidden`}
+            >
+              {/* Decorative elements */}
+              <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/3" />
+              <div className="absolute bottom-0 left-1/3 w-48 h-48 bg-white/5 rounded-full translate-y-1/2" />
+              <div className="absolute top-1/2 right-1/4 text-[120px] opacity-10 select-none">{promoBanners[current].emoji}</div>
+
+              <div className="relative z-10 max-w-xl">
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.2 }}
+                >
+                  <Badge className="bg-white/20 text-white border-0 text-sm mb-4 backdrop-blur-sm">
+                    {promoBanners[current].emoji} {promoBanners[current].subtitle}
+                  </Badge>
+                </motion.div>
+                <motion.h2
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.3 }}
+                  className="font-serif text-3xl sm:text-4xl lg:text-5xl font-bold mb-4"
+                >
+                  {promoBanners[current].title}
+                </motion.h2>
+                <motion.p
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.4 }}
+                  className="text-white/80 text-base sm:text-lg mb-6 max-w-md"
+                >
+                  {promoBanners[current].description}
+                </motion.p>
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.5 }}
+                >
+                  <Button
+                    size="lg"
+                    className="bg-white text-gray-900 hover:bg-white/90 font-semibold gap-2"
+                    onClick={() => handleCta(promoBanners[current].category)}
+                  >
+                    {promoBanners[current].cta} <ArrowRight className="size-4" />
+                  </Button>
+                </motion.div>
+              </div>
+            </motion.div>
+          </AnimatePresence>
+
+          {/* Slider Controls */}
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3">
+            {promoBanners.map((_, idx) => (
+              <button
+                key={idx}
+                onClick={() => setCurrent(idx)}
+                className={`transition-all duration-300 rounded-full ${
+                  idx === current
+                    ? 'w-8 h-2 bg-white'
+                    : 'w-2 h-2 bg-white/50 hover:bg-white/70'
+                }`}
+              />
+            ))}
+          </div>
+
+          {/* Arrow Controls */}
+          <button
+            onClick={() => setCurrent(prev => (prev - 1 + promoBanners.length) % promoBanners.length)}
+            className="absolute left-3 top-1/2 -translate-y-1/2 size-10 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center text-white hover:bg-white/30 transition-colors"
+          >
+            <ChevronLeft className="size-5" />
+          </button>
+          <button
+            onClick={() => setCurrent(prev => (prev + 1) % promoBanners.length)}
+            className="absolute right-3 top-1/2 -translate-y-1/2 size-10 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center text-white hover:bg-white/30 transition-colors"
+          >
+            <ChevronRight className="size-5" />
+          </button>
+        </div>
+      </div>
+    </section>
+  )
+}
+
 // ─── Home View ───────────────────────────────────────────────────────────────
 
 function HomeView({ products }: { products: Product[] }) {
@@ -500,6 +660,8 @@ function HomeView({ products }: { products: Product[] }) {
   const { toast } = useToast()
 
   const featuredProducts = useMemo(() => products.filter(p => p.featured && p.status === 'active').slice(0, 8), [products])
+
+  const discountedProducts = useMemo(() => products.filter(p => p.discount > 0 && p.status === 'active').sort((a, b) => b.discount - a.discount).slice(0, 8), [products])
 
   const categories = useMemo(() => {
     const cats: { name: string; slug: string; description: string; count: number; comingSoon: boolean }[] = []
@@ -584,6 +746,9 @@ function HomeView({ products }: { products: Product[] }) {
         </div>
       </section>
 
+      {/* Promotional Banner Slider */}
+      <PromoBannerSlider />
+
       {/* Categories Section */}
       <section id="categories-section" className="py-16 sm:py-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
@@ -660,6 +825,41 @@ function HomeView({ products }: { products: Product[] }) {
         </section>
       )}
 
+      {/* Discounted Products Section */}
+      {discountedProducts.length > 0 && (
+        <section className="py-16 sm:py-20">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6">
+            <motion.div {...fadeIn} viewport={{ once: true }} className="text-center mb-10">
+              <Badge className="mb-4 px-4 py-1.5 text-sm font-medium bg-red-500 text-white border-0 hover:bg-red-600">
+                <Sparkles className="size-3.5 mr-1.5" /> Hot Deals
+              </Badge>
+              <h2 className="font-serif text-3xl sm:text-4xl font-bold mb-3">Special Offers</h2>
+              <p className="text-muted-foreground max-w-lg mx-auto">Don't miss out — limited time discounts on premium beauty products</p>
+            </motion.div>
+
+            <motion.div
+              variants={staggerContainer}
+              initial="initial"
+              whileInView="animate"
+              viewport={{ once: true }}
+              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6"
+            >
+              {discountedProducts.map(product => (
+                <motion.div key={product.id} variants={staggerItem}>
+                  <ProductCard product={product} />
+                </motion.div>
+              ))}
+            </motion.div>
+
+            <div className="mt-10 text-center">
+              <Button variant="outline" size="lg" onClick={() => setView({ view: 'products' })} className="gap-2">
+                View All Deals <ArrowRight className="size-4" />
+              </Button>
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* Why Choose Us */}
       <section className="py-16 sm:py-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
@@ -722,9 +922,11 @@ function ProductCard({ product }: { product: Product }) {
   const { selectedCountry } = useAppStore()
   const { toast } = useToast()
 
+  const discountedPrice = product.discount > 0 ? product.price * (1 - product.discount / 100) : product.price
+
   const handleAdd = (e: React.MouseEvent) => {
     e.stopPropagation()
-    addItem({ productId: product.id, name: product.name, price: product.price, quantity: 1, image: product.image || undefined })
+    addItem({ productId: product.id, name: product.name, price: discountedPrice, quantity: 1, image: product.image || undefined })
     toast({ title: 'Added to cart', description: `${product.name} has been added.` })
   }
 
@@ -749,7 +951,12 @@ function ProductCard({ product }: { product: Product }) {
               <ShoppingCart className="size-3.5" />
             </Button>
           </div>
-          {product.featured && (
+          {product.discount > 0 && (
+            <Badge className="absolute top-2 left-2 bg-red-500 text-white border-0 text-[10px] font-bold">
+              -{product.discount}%
+            </Badge>
+          )}
+          {product.featured && product.discount === 0 && (
             <Badge className="absolute top-2 left-2 bg-white/20 text-white border-0 text-[10px]">
               <Star className="size-3 mr-0.5" /> Featured
             </Badge>
@@ -760,7 +967,12 @@ function ProductCard({ product }: { product: Product }) {
           <h3 className="font-semibold text-sm mb-1 line-clamp-1">{product.name}</h3>
           <p className="text-xs text-muted-foreground line-clamp-2 mb-3">{product.description}</p>
           <div className="flex items-center justify-between">
-            <span className="font-bold text-primary">{formatPrice(product.price, selectedCountry)}</span>
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-primary">{formatPrice(discountedPrice, selectedCountry)}</span>
+              {product.discount > 0 && (
+                <span className="text-xs text-muted-foreground line-through">{formatPrice(product.price, selectedCountry)}</span>
+              )}
+            </div>
             <Button size="sm" onClick={handleAdd} className="h-7 text-xs">
               <Plus className="size-3 mr-1" /> Add
             </Button>
@@ -996,9 +1208,11 @@ function ProductGridCard({ product }: { product: Product }) {
   const { selectedCountry } = useAppStore()
   const { toast } = useToast()
 
+  const discountedPrice = product.discount > 0 ? product.price * (1 - product.discount / 100) : product.price
+
   const handleAdd = (e: React.MouseEvent) => {
     e.stopPropagation()
-    addItem({ productId: product.id, name: product.name, price: product.price, quantity: 1, image: product.image || undefined })
+    addItem({ productId: product.id, name: product.name, price: discountedPrice, quantity: 1, image: product.image || undefined })
     toast({ title: 'Added to cart', description: `${product.name} has been added.` })
   }
 
@@ -1020,7 +1234,12 @@ function ProductGridCard({ product }: { product: Product }) {
               <ShoppingCart className="size-3.5 mr-1" /> Add to Cart
             </Button>
           </div>
-          {product.featured && (
+          {product.discount > 0 && (
+            <Badge className="absolute top-2 left-2 bg-red-500 text-white border-0 text-[10px] font-bold">
+              -{product.discount}%
+            </Badge>
+          )}
+          {product.featured && product.discount === 0 && (
             <Badge className="absolute top-2 left-2 bg-white/20 text-white border-0 text-[10px]">
               <Star className="size-3 mr-0.5" /> Featured
             </Badge>
@@ -1034,7 +1253,12 @@ function ProductGridCard({ product }: { product: Product }) {
           <h3 className="font-semibold mb-1 line-clamp-1">{product.name}</h3>
           <p className="text-xs text-muted-foreground line-clamp-2 mb-3">{product.description}</p>
           <div className="flex items-center justify-between">
-            <span className="font-bold text-primary text-lg">{formatPrice(product.price, selectedCountry)}</span>
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-primary text-lg">{formatPrice(discountedPrice, selectedCountry)}</span>
+              {product.discount > 0 && (
+                <span className="text-xs text-muted-foreground line-through">{formatPrice(product.price, selectedCountry)}</span>
+              )}
+            </div>
             <Button size="sm" variant="outline" onClick={handleAdd} className="h-7 text-xs">
               <Plus className="size-3" />
             </Button>
@@ -1087,7 +1311,8 @@ function ProductDetailView({ products }: { products: Product[] }) {
   }
 
   const handleAddToCart = () => {
-    addItem({ productId: product.id, name: product.name, price: product.price, quantity, image: product.image || undefined })
+    const finalPrice = product.discount > 0 ? product.price * (1 - product.discount / 100) : product.price
+    addItem({ productId: product.id, name: product.name, price: finalPrice, quantity, image: product.image || undefined })
     toast({ title: 'Added to cart', description: `${quantity}x ${product.name} added to your cart.` })
   }
 
@@ -1150,7 +1375,8 @@ function ProductDetailView({ products }: { products: Product[] }) {
               <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent pointer-events-none" />
               <div className="absolute top-4 left-4 flex gap-2 pointer-events-none">
                 <Badge className="bg-white/20 text-white border-0">{product.category.name}</Badge>
-                {product.featured && <Badge className="bg-white/20 text-white border-0"><Star className="size-3 mr-1" />Featured</Badge>}
+                {product.discount > 0 && <Badge className="bg-red-500 text-white border-0 font-bold">-{product.discount}% OFF</Badge>}
+                {product.featured && product.discount === 0 && <Badge className="bg-white/20 text-white border-0"><Star className="size-3 mr-1" />Featured</Badge>}
               </div>
               <div className="absolute bottom-4 right-4 animate-float pointer-events-none">
                 <div className="size-16 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center">
@@ -1183,7 +1409,15 @@ function ProductDetailView({ products }: { products: Product[] }) {
             <p className="text-muted-foreground leading-relaxed mb-6">{product.description}</p>
 
             <div className="mb-6">
-              <span className="text-3xl font-bold text-primary">{formatPrice(product.price, selectedCountry)}</span>
+              {product.discount > 0 ? (
+                <div className="flex items-center gap-3">
+                  <span className="text-3xl font-bold text-primary">{formatPrice(product.price * (1 - product.discount / 100), selectedCountry)}</span>
+                  <span className="text-lg text-muted-foreground line-through">{formatPrice(product.price, selectedCountry)}</span>
+                  <Badge className="bg-red-500 text-white border-0">Save {product.discount}%</Badge>
+                </div>
+              ) : (
+                <span className="text-3xl font-bold text-primary">{formatPrice(product.price, selectedCountry)}</span>
+              )}
             </div>
 
             <div className="flex items-center gap-2 mb-2 text-sm text-muted-foreground">

@@ -29,6 +29,7 @@ model Product {
   images      String?   @default("[]")
   categoryId  String
   featured    Boolean   @default(false)
+  discount    Int       @default(0)
   stock       Int       @default(100)
   status      String    @default("active")
   createdAt   DateTime  @default(now())
