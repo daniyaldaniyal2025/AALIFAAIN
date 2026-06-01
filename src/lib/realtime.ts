@@ -14,7 +14,7 @@ export function getSocket(): Socket {
     })
 
     socketInstance.on('connect', () => {
-      console.log('[Realtime] Connected to product sync service')
+      console.log('[Realtime] Connected to sync service')
     })
 
     socketInstance.on('disconnect', (reason) => {
@@ -37,6 +37,17 @@ export function emitProductChange(action: 'created' | 'updated' | 'deleted', pro
   if (socket.connected) {
     socket.emit('product:changed', { action, productId })
     console.log(`[Realtime] Emitted product:${action}`)
+  } else {
+    console.warn('[Realtime] Socket not connected, skipping emit')
+  }
+}
+
+// Emit a category change event to all connected clients
+export function emitCategoryChange(action: 'created' | 'updated' | 'deleted', categoryId?: string) {
+  const socket = getSocket()
+  if (socket.connected) {
+    socket.emit('category:changed', { action, categoryId })
+    console.log(`[Realtime] Emitted category:${action}`)
   } else {
     console.warn('[Realtime] Socket not connected, skipping emit')
   }

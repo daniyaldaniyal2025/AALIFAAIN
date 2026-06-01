@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useTheme } from 'next-themes'
 import { useCartStore, useAppStore } from '@/stores/app-store'
 import { useAuthStore } from '@/stores/auth-store'
-import { getSocket, disconnectSocket, emitProductChange } from '@/lib/realtime'
+import { getSocket, disconnectSocket, emitProductChange, emitCategoryChange } from '@/lib/realtime'
 import { formatPrice, countries, getCountryByCode } from '@/lib/currency'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card'
@@ -31,7 +31,7 @@ import {
   LogOut, UserCircle, UserPlus, Lock, AlertCircle, Check,
   EyeOff, Save, Calendar, Pencil, ToggleLeft, ToggleRight, ImagePlus, Upload, ImageIcon,
   Info, MessageSquare, Send, Award, Target, Leaf, Handshake, Building2,
-  Wallet, Banknote, Smartphone, Receipt, CircleDollarSign, RotateCcw
+  Wallet, Banknote, Smartphone, Receipt, CircleDollarSign, RotateCcw, Tag, FolderOpen
 } from 'lucide-react'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
@@ -681,7 +681,7 @@ function PromoBannerSlider() {
 
 // ─── Home View ───────────────────────────────────────────────────────────────
 
-function HomeView({ products }: { products: Product[] }) {
+function HomeView({ products, categories: apiCategories }: { products: Product[]; categories: Category[] }) {
   const { setView, setSelectedCategory } = useAppStore()
   const { addItem } = useCartStore()
   const { selectedCountry } = useAppStore()
@@ -692,23 +692,20 @@ function HomeView({ products }: { products: Product[] }) {
   const discountedProducts = useMemo(() => products.filter(p => p.discount > 0 && p.status === 'active').sort((a, b) => b.discount - a.discount).slice(0, 8), [products])
 
   const categories = useMemo(() => {
-    const cats: { name: string; slug: string; description: string; count: number; comingSoon: boolean }[] = []
     const catMap = new Map<string, number>()
     products.forEach(p => { catMap.set(p.category.name, (catMap.get(p.category.name) || 0) + 1) })
 
-    const defaults = [
-      { name: 'Morocco', slug: 'morocco', description: 'Traditional Moroccan beauty secrets', comingSoon: false },
-      { name: 'Korea', slug: 'korea', description: 'Innovative Korean skincare', comingSoon: false },
-      { name: 'Supplements', slug: 'supplements', description: 'Inner beauty & wellness', comingSoon: false },
-      { name: 'Clothing', slug: 'clothing', description: 'Premium fashion collection', comingSoon: true },
-      { name: 'Fragrances', slug: 'fragrances', description: 'Exquisite scent collection', comingSoon: true },
-    ]
-
-    defaults.forEach(d => {
-      cats.push({ ...d, count: catMap.get(d.name) || 0 })
-    })
-    return cats
-  }, [products])
+    return apiCategories
+      .filter(c => c.status === 'active' || c.status === 'coming_soon')
+      .map(c => ({
+        name: c.name,
+        slug: c.slug,
+        description: c.description || '',
+        count: catMap.get(c.name) || 0,
+        comingSoon: c.status === 'coming_soon',
+        image: c.image,
+      }))
+  }, [products, apiCategories])
 
   const handleCategoryClick = (slug: string, comingSoon: boolean) => {
     if (comingSoon) return
@@ -2665,6 +2662,9 @@ function AdminDashboard() {
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => setView({ view: 'admin-products' })}>
               <Boxes className="size-4 mr-1" /> Products
+            </Button>
+            <Button variant="outline" onClick={() => setView({ view: 'admin-categories' })}>
+              <Tag className="size-4 mr-1" /> Categories
             </Button>
             <Button variant="outline" onClick={() => setView({ view: 'admin-orders' })}>
               <ClipboardList className="size-4 mr-1" /> Orders
@@ -5058,6 +5058,388 @@ function ProfileView() {
   )
 }
 
+// ─── Admin Categories View ──────────────────────────────────────────────────
+
+interface CategoryWithCount extends Category {
+  _count?: { products: number }
+}
+
+function AdminCategories({ onCategoriesChange }: { onCategoriesChange?: () => void }) {
+  const { setView } = useAppStore()
+  const { toast } = useToast()
+  const [categories, setCategories] = useState<CategoryWithCount[]>([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+
+  // Dialog states
+  const [showAddDialog, setShowAddDialog] = useState(false)
+  const [showEditDialog, setShowEditDialog] = useState(false)
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [selectedCategory, setSelectedCategory] = useState<CategoryWithCount | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  // Form state
+  const [formName, setFormName] = useState('')
+  const [formSlug, setFormSlug] = useState('')
+  const [formDescription, setFormDescription] = useState('')
+  const [formImage, setFormImage] = useState('')
+  const [formStatus, setFormStatus] = useState('active')
+  const [formError, setFormError] = useState('')
+
+  const fetchCategories = useCallback(async () => {
+    try {
+      const res = await fetch('/api/categories')
+      const data = await res.json()
+      if (Array.isArray(data)) setCategories(data)
+    } catch {}
+    setLoading(false)
+  }, [])
+
+  useEffect(() => { fetchCategories() }, [fetchCategories])
+
+  // Auto-generate slug from name
+  const generateSlug = (name: string) => {
+    return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+  }
+
+  const resetForm = () => {
+    setFormName('')
+    setFormSlug('')
+    setFormDescription('')
+    setFormImage('')
+    setFormStatus('active')
+    setFormError('')
+  }
+
+  const openEditDialog = (cat: CategoryWithCount) => {
+    setSelectedCategory(cat)
+    setFormName(cat.name)
+    setFormSlug(cat.slug)
+    setFormDescription(cat.description || '')
+    setFormImage(cat.image || '')
+    setFormStatus(cat.status)
+    setFormError('')
+    setShowEditDialog(true)
+  }
+
+  const openDeleteDialog = (cat: CategoryWithCount) => {
+    setSelectedCategory(cat)
+    setShowDeleteDialog(true)
+  }
+
+  const handleAddCategory = async () => {
+    if (!formName.trim()) { setFormError('Name is required'); return }
+    if (!formSlug.trim()) { setFormError('Slug is required'); return }
+    setSaving(true)
+    setFormError('')
+    try {
+      const res = await fetch('/api/categories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: formName.trim(),
+          slug: formSlug.trim(),
+          description: formDescription.trim() || null,
+          image: formImage.trim() || null,
+          status: formStatus,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setFormError(data.error || 'Failed to create category')
+        return
+      }
+      toast({ title: 'Category Created', description: `"${formName}" has been created successfully.` })
+      emitCategoryChange('created', data.id)
+      await fetchCategories()
+      onCategoriesChange?.()
+      setShowAddDialog(false)
+      resetForm()
+    } catch {
+      setFormError('Failed to create category')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleEditCategory = async () => {
+    if (!selectedCategory) return
+    if (!formName.trim()) { setFormError('Name is required'); return }
+    if (!formSlug.trim()) { setFormError('Slug is required'); return }
+    setSaving(true)
+    setFormError('')
+    try {
+      const res = await fetch(`/api/categories/${selectedCategory.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: formName.trim(),
+          slug: formSlug.trim(),
+          description: formDescription.trim() || null,
+          image: formImage.trim() || null,
+          status: formStatus,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setFormError(data.error || 'Failed to update category')
+        return
+      }
+      toast({ title: 'Category Updated', description: `"${formName}" has been updated successfully.` })
+      emitCategoryChange('updated', data.id)
+      await fetchCategories()
+      onCategoriesChange?.()
+      setShowEditDialog(false)
+      resetForm()
+    } catch {
+      setFormError('Failed to update category')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDeleteCategory = async () => {
+    if (!selectedCategory) return
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/categories/${selectedCategory.id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const data = await res.json()
+        toast({ title: 'Cannot Delete', description: data.error, variant: 'destructive' })
+        return
+      }
+      toast({ title: 'Category Deleted', description: `"${selectedCategory.name}" has been deleted.` })
+      emitCategoryChange('deleted', selectedCategory.id)
+      await fetchCategories()
+      onCategoriesChange?.()
+      setShowDeleteDialog(false)
+    } catch {
+      toast({ title: 'Error', description: 'Failed to delete category.', variant: 'destructive' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // Category form component (shared between Add and Edit)
+  const CategoryForm = () => (
+    <div className="space-y-4 py-2">
+      {formError && (
+        <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 p-3 rounded-lg">
+          <AlertCircle className="size-4 shrink-0" />
+          {formError}
+        </div>
+      )}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="cat-name">Name *</Label>
+          <Input id="cat-name" value={formName} onChange={e => { setFormName(e.target.value); if (!showEditDialog) setFormSlug(generateSlug(e.target.value)) }} placeholder="e.g. Morocco" />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="cat-slug">Slug *</Label>
+          <Input id="cat-slug" value={formSlug} onChange={e => setFormSlug(e.target.value)} placeholder="e.g. morocco" />
+        </div>
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="cat-desc">Description</Label>
+        <Textarea id="cat-desc" value={formDescription} onChange={e => setFormDescription(e.target.value)} placeholder="Category description..." rows={3} className="resize-y" />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="cat-image">Image URL</Label>
+        <Input id="cat-image" value={formImage} onChange={e => setFormImage(e.target.value)} placeholder="/images/categories/my-category.png" />
+        {formImage && (
+          <div className="mt-2 w-24 h-24 rounded-lg overflow-hidden border">
+            <img src={formImage} alt="Preview" className="w-full h-full object-cover" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+          </div>
+        )}
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="cat-status">Status</Label>
+        <Select value={formStatus} onValueChange={setFormStatus}>
+          <SelectTrigger id="cat-status"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="active">Active</SelectItem>
+            <SelectItem value="coming_soon">Coming Soon</SelectItem>
+            <SelectItem value="inactive">Inactive</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
+  )
+
+  const filteredCategories = categories.filter(c =>
+    c.name.toLowerCase().includes(search.toLowerCase()) ||
+    c.slug.toLowerCase().includes(search.toLowerCase())
+  )
+
+  const statusBadge: Record<string, string> = {
+    active: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+    coming_soon: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+    inactive: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+  }
+
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+      <motion.div {...fadeIn}>
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" size="icon" onClick={() => setView({ view: 'admin' })}>
+              <ArrowLeft className="size-5" />
+            </Button>
+            <div>
+              <h1 className="font-serif text-3xl font-bold flex items-center gap-2">
+                <Tag className="size-7 text-primary" /> Categories
+              </h1>
+              <p className="text-muted-foreground">Manage your product categories</p>
+            </div>
+          </div>
+          <Button onClick={() => { resetForm(); setShowAddDialog(true) }} className="gap-2">
+            <Plus className="size-4" /> Add Category
+          </Button>
+        </div>
+
+        {/* Search */}
+        <div className="relative mb-6">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+          <Input placeholder="Search categories..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10" />
+        </div>
+
+        {/* Categories Grid */}
+        {loading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {[1, 2, 3].map(i => (
+              <Card key={i} className="animate-pulse">
+                <CardContent className="p-6"><div className="h-32 bg-muted rounded" /></CardContent>
+              </Card>
+            ))}
+          </div>
+        ) : filteredCategories.length === 0 ? (
+          <Card>
+            <CardContent className="p-12 text-center">
+              <FolderOpen className="size-12 text-muted-foreground mx-auto mb-4" />
+              <h3 className="font-semibold text-lg mb-1">No categories found</h3>
+              <p className="text-muted-foreground mb-4">
+                {search ? 'No categories match your search.' : 'Get started by adding your first category.'}
+              </p>
+              {!search && (
+                <Button onClick={() => { resetForm(); setShowAddDialog(true) }} className="gap-2">
+                  <Plus className="size-4" /> Add Category
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filteredCategories.map(cat => (
+              <motion.div key={cat.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
+                <Card className="overflow-hidden group hover:shadow-lg transition-all duration-300">
+                  {/* Category Image/Header */}
+                  <div className={`relative h-32 bg-gradient-to-br ${getGradientForCategory(cat.slug)} overflow-hidden`}>
+                    {cat.image && (
+                      <img src={cat.image} alt={cat.name} className="absolute inset-0 w-full h-full object-cover opacity-30 mix-blend-overlay" />
+                    )}
+                    <div className="absolute top-2 right-2 text-3xl opacity-30">{categoryIcons[cat.slug] || '📁'}</div>
+                    <div className="absolute bottom-3 left-3">
+                      <span className="text-2xl">{categoryIcons[cat.slug] || '📁'}</span>
+                    </div>
+                    <Badge className={`absolute top-2 left-2 ${statusBadge[cat.status] || statusBadge.inactive} border-0 text-[10px]`}>
+                      {cat.status === 'coming_soon' ? 'Coming Soon' : cat.status.charAt(0).toUpperCase() + cat.status.slice(1)}
+                    </Badge>
+                  </div>
+
+                  <CardContent className="p-4">
+                    <h3 className="font-serif font-bold text-lg mb-1">{cat.name}</h3>
+                    <p className="text-xs text-muted-foreground mb-1">Slug: {cat.slug}</p>
+                    {cat.description && (
+                      <p className="text-xs text-muted-foreground line-clamp-2 mb-2">{cat.description}</p>
+                    )}
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">
+                        {cat._count?.products ?? 0} product{(cat._count?.products ?? 0) !== 1 ? 's' : ''}
+                      </span>
+                      <div className="flex gap-1">
+                        <Button variant="ghost" size="icon" className="size-8" onClick={() => openEditDialog(cat)}>
+                          <Pencil className="size-3.5" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="size-8 text-destructive hover:text-destructive" onClick={() => openDeleteDialog(cat)}>
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            ))}
+          </div>
+        )}
+
+        {/* Add Category Dialog */}
+        <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+          <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="font-serif text-xl flex items-center gap-2">
+                <Plus className="size-5 text-primary" /> Add New Category
+              </DialogTitle>
+              <DialogDescription>Create a new category for organizing your products.</DialogDescription>
+            </DialogHeader>
+            <CategoryForm />
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => setShowAddDialog(false)}>Cancel</Button>
+              <Button onClick={handleAddCategory} disabled={saving}>
+                {saving ? <div className="size-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <><Plus className="size-4 mr-1" /> Add Category</>}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Edit Category Dialog */}
+        <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+          <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="font-serif text-xl flex items-center gap-2">
+                <Pencil className="size-5 text-primary" /> Edit Category
+              </DialogTitle>
+              <DialogDescription>Update category details.</DialogDescription>
+            </DialogHeader>
+            <CategoryForm />
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => setShowEditDialog(false)}>Cancel</Button>
+              <Button onClick={handleEditCategory} disabled={saving}>
+                {saving ? <div className="size-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <><Save className="size-4 mr-1" /> Save Changes</>}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Delete Confirmation Dialog */}
+        <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <AlertCircle className="size-5 text-destructive" /> Delete Category
+              </DialogTitle>
+              <DialogDescription>
+                Are you sure you want to delete &quot;{selectedCategory?.name}&quot;? This action cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            {selectedCategory && (selectedCategory._count?.products ?? 0) > 0 && (
+              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 text-sm text-amber-700 dark:text-amber-400">
+                ⚠️ This category has {selectedCategory._count?.products} product(s). You must move or delete them first.
+              </div>
+            )}
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => setShowDeleteDialog(false)}>Cancel</Button>
+              <Button variant="destructive" onClick={handleDeleteCategory} disabled={saving || (selectedCategory ? (selectedCategory._count?.products ?? 0) > 0 : false)}>
+                {saving ? <div className="size-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <><Trash2 className="size-4 mr-1" /> Delete</>}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </motion.div>
+    </div>
+  )
+}
+
 // ─── Admin Guard Component ────────────────────────────────────────────────────
 
 function AdminGuard({ children }: { children: React.ReactNode }) {
@@ -5246,6 +5628,7 @@ export default function AlifaainPage() {
   const { currentView } = useAppStore()
   const { fetchSession, user, loading: authLoading } = useAuthStore()
   const [products, setProducts] = useState<Product[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
   const [seeded, setSeeded] = useState(false)
 
@@ -5271,6 +5654,10 @@ export default function AlifaainPage() {
         .then(r => r.json())
         .then(data => { setProducts(data); setLoading(false) })
         .catch(() => setLoading(false))
+      fetch('/api/categories')
+        .then(r => r.json())
+        .then(data => { if (Array.isArray(data)) setCategories(data) })
+        .catch(() => {})
     }
   }, [seeded])
 
@@ -5279,6 +5666,14 @@ export default function AlifaainPage() {
     fetch('/api/products')
       .then(r => r.json())
       .then(data => { if (Array.isArray(data)) setProducts(data) })
+      .catch(() => {})
+  }, [])
+
+  // Refresh categories
+  const refreshCategories = useCallback(() => {
+    fetch('/api/categories')
+      .then(r => r.json())
+      .then(data => { if (Array.isArray(data)) setCategories(data) })
       .catch(() => {})
   }, [])
 
@@ -5292,11 +5687,18 @@ export default function AlifaainPage() {
       refreshProducts()
     })
 
+    // Listen for category change events and auto-refresh
+    socket.on('category:changed', (data: { action: string; categoryId?: string }) => {
+      console.log(`[Realtime] Category ${data.action} — refreshing...`)
+      refreshCategories()
+    })
+
     return () => {
       socket.off('product:changed')
+      socket.off('category:changed')
       disconnectSocket()
     }
-  }, [refreshProducts])
+  }, [refreshProducts, refreshCategories])
 
   // Scroll to top on view change
   useEffect(() => {
@@ -5321,7 +5723,7 @@ export default function AlifaainPage() {
   const renderView = () => {
     switch (currentView.view) {
       case 'home':
-        return <HomeView products={products} />
+        return <HomeView products={products} categories={categories} />
       case 'products':
         return <ProductsView products={products} />
       case 'product-detail':
@@ -5346,8 +5748,10 @@ export default function AlifaainPage() {
         return <AdminGuard><AdminProducts products={products} onProductsChange={refreshProducts} /></AdminGuard>
       case 'admin-orders':
         return <AdminGuard><AdminOrders /></AdminGuard>
+      case 'admin-categories':
+        return <AdminGuard><AdminCategories onCategoriesChange={refreshCategories} /></AdminGuard>
       default:
-        return <HomeView products={products} />
+        return <HomeView products={products} categories={categories} />
     }
   }
 

@@ -25,6 +25,13 @@ io.on('connection', (socket) => {
     io.emit('product:changed', data) // Broadcast to all clients
   })
 
+  // When any client emits a category change event,
+  // broadcast it to ALL connected clients
+  socket.on('category:changed', (data: { action: string; categoryId?: string }) => {
+    console.log(`[Category Changed] ${data.action} - from ${socket.id}`)
+    io.emit('category:changed', data) // Broadcast to all clients
+  })
+
   socket.on('disconnect', (reason) => {
     console.log(`[Disconnect] Client ${socket.id}: ${reason}`)
   })
@@ -37,7 +44,7 @@ io.on('connection', (socket) => {
 const PORT = 3003
 httpServer.listen(PORT, () => {
   console.log(`[Realtime Service] Running on port ${PORT}`)
-  console.log(`[Realtime Service] Listening for 'product:changed' events`)
+  console.log(`[Realtime Service] Listening for 'product:changed' and 'category:changed' events`)
 })
 
 process.on('SIGTERM', () => {
