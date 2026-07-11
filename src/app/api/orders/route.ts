@@ -1,5 +1,6 @@
 import { db } from '@/lib/db'
 import { NextRequest } from 'next/server'
+import { validateCouponCode, applyCouponUsage } from '@/lib/coupons'
 
 export async function GET() {
   try {
@@ -16,11 +17,25 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    const { customerName, customerEmail, customerPhone, items, currency, country, paymentMethod } = body
+    const { customerName, customerEmail, customerPhone, items, currency, country, paymentMethod, couponCode } = body
 
-    const total = items.reduce((sum: number, item: { price: number; quantity: number }) => {
+    const subtotal = items.reduce((sum: number, item: { price: number; quantity: number }) => {
       return sum + item.price * item.quantity
     }, 0)
+
+    let discountAmount = 0
+    let appliedCouponCode: string | null = null
+
+    if (couponCode) {
+      const couponResult = await validateCouponCode(couponCode, subtotal)
+      if ('error' in couponResult) {
+        return Response.json({ error: couponResult.error }, { status: 400 })
+      }
+      discountAmount = couponResult.coupon.discountAmount
+      appliedCouponCode = couponResult.coupon.code
+    }
+
+    const total = Math.max(0, subtotal - discountAmount)
 
     const order = await db.order.create({
       data: {
@@ -28,6 +43,8 @@ export async function POST(request: Request) {
         customerEmail,
         customerPhone,
         total,
+        couponCode: appliedCouponCode,
+        discountAmount,
         currency: currency || 'SAR',
         country: country || 'SA',
         paymentMethod: paymentMethod || 'cod',
@@ -43,6 +60,10 @@ export async function POST(request: Request) {
       },
       include: { items: true },
     })
+
+    if (appliedCouponCode) {
+      await applyCouponUsage(appliedCouponCode)
+    }
 
     return Response.json(order, { status: 201 })
   } catch (error) {

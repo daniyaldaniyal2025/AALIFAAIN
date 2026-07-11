@@ -3,10 +3,13 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTheme } from 'next-themes'
-import { useCartStore, useAppStore } from '@/stores/app-store'
+import { useCartStore, useWishlistStore, useCouponStore, useAppStore } from '@/stores/app-store'
 import { useAuthStore } from '@/stores/auth-store'
 import { getSocket, disconnectSocket, emitProductChange, emitCategoryChange } from '@/lib/realtime'
 import { formatPrice, countries, getCountryByCode } from '@/lib/currency'
+import { isValidPhone } from '@/lib/phone'
+import { PhoneInput } from '@/components/phone-input'
+import { trackEvent, PAGE_LABELS } from '@/lib/analytics'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -25,7 +28,7 @@ import { Textarea } from '@/components/ui/textarea'
 import {
   ShoppingCart, Sun, Moon, Menu, Home, Store, ShieldCheck, Truck, CreditCard, Star,
   Plus, Minus, Trash2, ArrowLeft, Search, ChevronDown, Package, DollarSign,
-  Clock, TrendingUp, Users, Mail, Instagram, Twitter, Facebook, MapPin, Phone,
+  Clock, TrendingUp, Users, Mail, Instagram, Youtube, MapPin, Phone,
   X, ShoppingBag, CheckCircle2, ArrowRight, Sparkles, Heart, Eye, Filter,
   BarChart3, Boxes, ClipboardList, RefreshCw, Globe, ChevronRight, ChevronLeft, LogIn,
   LogOut, UserCircle, UserPlus, Lock, AlertCircle, Check,
@@ -34,8 +37,8 @@ import {
   Wallet, Banknote, Smartphone, Receipt, CircleDollarSign, RotateCcw, Tag, FolderOpen, UsersRound, Shield
 } from 'lucide-react'
 import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
-  ResponsiveContainer
+  AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
+  ResponsiveContainer, Legend
 } from 'recharts'
 import { useToast } from '@/hooks/use-toast'
 
@@ -81,6 +84,8 @@ interface Order {
   customerEmail: string
   customerPhone: string | null
   total: number
+  couponCode?: string | null
+  discountAmount?: number
   status: string
   currency: string
   country: string
@@ -91,6 +96,23 @@ interface Order {
   paidAt: string | null
   createdAt: string
   items: OrderItem[]
+}
+
+interface EngagementStats {
+  totalCustomers: number
+  newCustomers30d: number
+  pageViews30d: number
+  uniqueVisitors30d: number
+  returningVisitors: number
+  signIns30d: number
+  signUps30d: number
+  addToCart30d: number
+  checkouts30d: number
+  orders30d: number
+  conversionRate: number
+  dailyEngagement: { day: string; pageViews: number; uniqueVisitors: number }[]
+  topPages: { page: string; views: number }[]
+  funnel: { step: string; count: number }[]
 }
 
 interface AdminStats {
@@ -105,6 +127,7 @@ interface AdminStats {
   paymentMethodStats: { method: string; count: number; total: number }[]
   paidRevenue: number
   pendingPayments: number
+  engagement?: EngagementStats
 }
 
 // ─── Permission System ─────────────────────────────────────────────────────
@@ -171,12 +194,109 @@ const staggerItem = {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+const CONTACT_EMAIL = 'info@alifaain.com'
+const CONTACT_PHONE = '+966 53 245 1422'
+
+function SnapchatIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M12 2C8.5 2 6 4.5 6 8c0 1.5.5 2.8 1.3 3.9-.9.3-1.8.7-2.5 1.2-.5.4-.3 1.1.3 1.2 1 .2 2.5.4 3.9.5-.2.9-.3 1.8-.3 2.4 0 .6.4 1 1 1h5.6c.6 0 1-.4 1-1 0-.6-.1-1.5-.3-2.4 1.4-.1 2.9-.3 3.9-.5.6-.1.8-.8.3-1.2-.7-.5-1.6-.9-2.5-1.2.8-1.1 1.3-2.4 1.3-3.9 0-3.5-2.5-6-6-6z" />
+    </svg>
+  )
+}
+
+function TikTokIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64 2.93 2.93 0 0 1 .88.13V9.4a6.84 6.84 0 0 0-1-.05A6.33 6.33 0 0 0 5 20.1a6.34 6.34 0 0 0 10.86-4.43v-7a8.16 8.16 0 0 0 4.77 1.52v-3.4a4.85 4.85 0 0 1-1-.1z" />
+    </svg>
+  )
+}
+
+const SOCIAL_LINKS = [
+  {
+    label: 'YouTube',
+    href: 'https://youtube.com/@alifaain-q8z?si=cUMSneAWuQZ_eLKC',
+    icon: Youtube,
+  },
+  {
+    label: 'Snapchat',
+    href: 'https://www.snapchat.com/add/alifaain007?share_id=A5ZUHTKCBXg&locale=en-GB',
+    icon: SnapchatIcon,
+  },
+  {
+    label: 'TikTok',
+    href: 'https://www.tiktok.com/@alif.aain?_r=1&_t=ZS-96t3JMcN4OC',
+    icon: TikTokIcon,
+  },
+  {
+    label: 'Instagram',
+    href: 'https://www.instagram.com/alif.aain?utm_source=qr&igsh=MWUzcHZvNHR4Z2ljZQ==',
+    icon: Instagram,
+  },
+] as const
+
+function SocialLinkButton({
+  href,
+  label,
+  icon: Icon,
+  variant = 'ghost',
+  size = 'icon',
+  className = '',
+  showLabel = false,
+}: {
+  href: string
+  label: string
+  icon: React.ElementType<{ className?: string }>
+  variant?: 'ghost' | 'outline'
+  size?: 'icon' | 'lg'
+  className?: string
+  showLabel?: boolean
+}) {
+  return (
+    <Button variant={variant} size={size} className={className} asChild>
+      <a href={href} target="_blank" rel="noopener noreferrer" aria-label={label}>
+        <Icon className={size === 'lg' ? 'size-5' : 'size-4'} />
+        {showLabel && <span className="hidden sm:inline">{label}</span>}
+      </a>
+    </Button>
+  )
+}
+
+// ─── Royal Theme Palette ─────────────────────────────────────────────────────
+
+const ROYAL_GRADIENT_DEFAULT = 'from-emerald-800 to-green-900'
+
 const categoryGradients: Record<string, string> = {
-  morocco: 'from-amber-600 via-orange-500 to-red-500',
-  korea: 'from-rose-400 via-pink-400 to-fuchsia-400',
-  supplements: 'from-emerald-500 via-teal-500 to-cyan-500',
-  clothing: 'from-violet-500 via-purple-500 to-indigo-500',
-  fragrances: 'from-pink-500 via-rose-400 to-amber-400',
+  morocco: 'from-emerald-950 via-green-900 to-teal-950',
+  korea: 'from-green-950 via-emerald-900 to-green-950',
+  supplements: 'from-teal-950 via-emerald-950 to-green-950',
+  clothing: 'from-emerald-800 via-green-700 to-emerald-950',
+  fragrances: 'from-green-950 via-emerald-900 to-teal-950',
+  books: 'from-teal-950 via-green-950 to-emerald-950',
+  literature: 'from-teal-950 via-green-950 to-emerald-950',
+}
+
+const royalOrderStatusColors: Record<string, string> = {
+  pending: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300',
+  processing: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
+  confirmed: 'bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-300',
+  shipped: 'bg-emerald-200 text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-200',
+  delivered: 'bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary',
+  cancelled: 'bg-destructive/10 text-destructive dark:bg-destructive/20 dark:text-destructive',
+}
+
+const royalPaymentStatusColors: Record<string, string> = {
+  pending: 'bg-gold/15 text-gold dark:bg-gold/10 dark:text-gold',
+  paid: 'bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary',
+  failed: 'bg-destructive/10 text-destructive dark:bg-destructive/20 dark:text-destructive',
+  refunded: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
+}
+
+const royalCategoryStatusColors: Record<string, string> = {
+  active: 'bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary',
+  coming_soon: 'bg-gold/15 text-gold dark:bg-gold/10 dark:text-gold',
+  inactive: 'bg-muted text-muted-foreground',
 }
 
 const categoryIcons: Record<string, string> = {
@@ -192,7 +312,150 @@ function getProductInitials(name: string): string {
 }
 
 function getGradientForCategory(slug: string): string {
-  return categoryGradients[slug] || 'from-amber-500 to-orange-500'
+  return categoryGradients[slug] || ROYAL_GRADIENT_DEFAULT
+}
+
+function getProductWishlistPrice(product: Product): number {
+  return product.discount > 0 ? product.price * (1 - product.discount / 100) : product.price
+}
+
+function WishlistButton({
+  product,
+  variant = 'overlay',
+  className = '',
+}: {
+  product: Product
+  variant?: 'overlay' | 'inline'
+  className?: string
+}) {
+  const { toggleItem, isInWishlist } = useWishlistStore()
+  const { toast } = useToast()
+  const saved = isInWishlist(product.id)
+
+  const handleToggle = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    const added = toggleItem({
+      productId: product.id,
+      name: product.name,
+      price: getProductWishlistPrice(product),
+      image: product.image || undefined,
+    })
+    toast({
+      title: added ? 'Added to wishlist' : 'Removed from wishlist',
+      description: added
+        ? `${product.name} saved to your favorites.`
+        : `${product.name} removed from your wishlist.`,
+    })
+  }
+
+  if (variant === 'inline') {
+    return (
+      <Button
+        variant={saved ? 'default' : 'outline'}
+        size="lg"
+        className={`gap-2 ${saved ? 'bg-primary hover:bg-primary/90' : ''} ${className}`}
+        onClick={handleToggle}
+      >
+        <Heart className={`size-5 ${saved ? 'fill-current' : ''}`} />
+        {saved ? 'Saved' : 'Add to Wishlist'}
+      </Button>
+    )
+  }
+
+  return (
+    <Button
+      size="icon"
+      variant="secondary"
+      className={`size-8 rounded-full ${saved ? 'bg-primary text-primary-foreground hover:bg-primary/90' : ''} ${className}`}
+      onClick={handleToggle}
+      aria-label={saved ? 'Remove from wishlist' : 'Add to wishlist'}
+    >
+      <Heart className={`size-3.5 ${saved ? 'fill-current' : ''}`} />
+    </Button>
+  )
+}
+
+function CouponInput({ subtotal, countryCode }: { subtotal: number; countryCode: string }) {
+  const [code, setCode] = useState('')
+  const [loading, setLoading] = useState(false)
+  const { applied, setApplied, clearApplied } = useCouponStore()
+  const { toast } = useToast()
+
+  const handleApply = async () => {
+    const trimmed = code.trim()
+    if (!trimmed) return
+
+    setLoading(true)
+    try {
+      const res = await fetch('/api/coupons/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: trimmed, subtotal }),
+      })
+      const data = await res.json()
+
+      if (!res.ok) {
+        toast({ title: 'Invalid coupon', description: data.error || 'Could not apply coupon', variant: 'destructive' })
+        return
+      }
+
+      setApplied(data.coupon)
+      toast({
+        title: 'Coupon applied!',
+        description: data.coupon.description || `You save ${formatPrice(data.coupon.discountAmount, countryCode)}`,
+      })
+    } catch {
+      toast({ title: 'Error', description: 'Failed to validate coupon', variant: 'destructive' })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (applied) {
+    return (
+      <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <Tag className="size-4 text-primary shrink-0" />
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-primary">{applied.code}</p>
+            <p className="text-xs text-muted-foreground truncate">
+              {applied.description || `${applied.discountType === 'percent' ? `${applied.discountValue}%` : 'Fixed'} discount`}
+            </p>
+          </div>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-8 shrink-0"
+          onClick={() => {
+            clearApplied()
+            setCode('')
+            toast({ title: 'Coupon removed' })
+          }}
+        >
+          <X className="size-4" />
+        </Button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex gap-2">
+        <Input
+          placeholder="Coupon code"
+          value={code}
+          onChange={(e) => setCode(e.target.value.toUpperCase())}
+          className="uppercase"
+          onKeyDown={(e) => e.key === 'Enter' && handleApply()}
+        />
+        <Button variant="outline" onClick={handleApply} disabled={loading || !code.trim()} className="shrink-0">
+          {loading ? <RefreshCw className="size-4 animate-spin" /> : 'Apply'}
+        </Button>
+      </div>
+      <p className="text-[11px] text-muted-foreground">Try <span className="font-mono text-primary">WELCOME10</span> for 10% off</p>
+    </div>
+  )
 }
 
 // ─── Header Component ────────────────────────────────────────────────────────
@@ -200,7 +463,9 @@ function getGradientForCategory(slug: string): string {
 function Header() {
   const { currentView, setView, selectedCountry, setSelectedCountry } = useAppStore()
   const { items } = useCartStore()
+  const wishlistItems = useWishlistStore(state => state.items)
   const totalItems = items.reduce((s, i) => s + i.quantity, 0)
+  const totalWishlistItems = wishlistItems.length
   const { theme, setTheme } = useTheme()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
@@ -220,11 +485,12 @@ function Header() {
     { label: 'Shop', view: 'products' as const, icon: Store },
     { label: 'About', view: 'about' as const, icon: Info },
     { label: 'Contact', view: 'contact' as const, icon: MessageSquare },
+    { label: 'Wishlist', view: 'wishlist' as const, icon: Heart, badge: totalWishlistItems },
     { label: 'Cart', view: 'cart' as const, icon: ShoppingCart, badge: totalItems },
     ...(user?.role === 'admin' ? [{ label: 'Admin', view: 'admin' as const, icon: BarChart3 }] : []),
   ]
 
-  const handleNav = (view: 'home' | 'products' | 'cart' | 'admin' | 'about' | 'contact') => {
+  const handleNav = (view: 'home' | 'products' | 'cart' | 'wishlist' | 'admin' | 'about' | 'contact') => {
     setView({ view })
     setMobileOpen(false)
   }
@@ -236,12 +502,15 @@ function Header() {
   }
 
   return (
-    <header className="sticky top-0 z-50 glass border-b border-border/50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+    <header className="sticky top-0 z-50 relative royal-hero-bg">
+      <div className="absolute inset-0 bg-black/20 pointer-events-none" />
+      <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-gold/40 to-transparent" />
+
+      <div className="relative max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between text-white">
         {/* Logo */}
-        <button onClick={() => handleNav('home')} className="flex items-center gap-2 group">
-          <img src="/alifaain-logo.jpg" alt="Alifaain" className="h-9 w-9 rounded-full object-cover ring-2 ring-primary/30 group-hover:ring-primary/60 transition-all" />
-          <span className="font-serif text-xl font-bold gold-text hidden sm:inline">Alifaain</span>
+        <button onClick={() => handleNav('home')} className="flex items-center gap-2 group cursor-pointer">
+          <img src="/alifaain-logo.jpg" alt="Alifaain" className="h-9 w-9 rounded-full object-cover ring-2 ring-gold/30 group-hover:ring-gold/60 transition-all cursor-pointer" />
+          <span className="font-serif text-xl font-bold gold-text hidden sm:inline">Alif Aain</span>
         </button>
 
         {/* Desktop Nav */}
@@ -251,19 +520,23 @@ function Header() {
             return (
               <Button
                 key={item.view}
-                variant={isActive ? 'default' : 'ghost'}
+                variant="ghost"
                 size="sm"
                 onClick={() => handleNav(item.view)}
-                className={`relative ${isActive ? 'bg-primary text-primary-foreground' : 'hover:bg-primary/10'}`}
+                className={`relative ${
+                  isActive
+                    ? 'bg-gold text-green-950 hover:bg-gold/90 hover:text-green-950'
+                    : 'text-white/80 hover:bg-white/10 hover:text-white'
+                }`}
               >
                 <item.icon className="size-4" />
                 <span>{item.label}</span>
-                {item.badge > 0 && (
+                {item.badge != null && item.badge > 0 && (
                   <motion.span
                     key={item.badge}
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
-                    className="absolute -top-1 -right-1 bg-destructive text-white text-[10px] font-bold rounded-full size-5 flex items-center justify-center"
+                    className="absolute -top-1 -right-1 bg-gold text-green-950 text-[10px] font-bold rounded-full size-5 flex items-center justify-center"
                   >
                     {item.badge}
                   </motion.span>
@@ -277,7 +550,7 @@ function Header() {
         <div className="flex items-center gap-2">
           {/* Country Selector */}
           <Select value={selectedCountry} onValueChange={setSelectedCountry}>
-            <SelectTrigger className="w-auto gap-1 border-0 bg-secondary/50 h-8 text-xs px-2">
+            <SelectTrigger className="w-auto gap-1 border border-white/15 bg-white/5 text-white h-8 text-xs px-2 hover:bg-white/10 cursor-pointer">
               <span>{countryInfo.flag}</span>
               <span className="hidden sm:inline">{countryInfo.currency}</span>
             </SelectTrigger>
@@ -296,7 +569,12 @@ function Header() {
 
           {/* Theme Toggle */}
           {mounted && (
-            <Button variant="ghost" size="icon" className="size-8" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8 text-white/80 hover:bg-white/10 hover:text-white"
+              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            >
               {theme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
             </Button>
           )}
@@ -305,18 +583,18 @@ function Header() {
           {mounted && (
             <>
               {user ? (
-                <div className="relative">
+                <div className="relative z-50">
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="gap-2 h-8"
+                    className="gap-2 h-8 text-white/80 hover:bg-white/10 hover:text-white"
                     onClick={() => setUserMenuOpen(!userMenuOpen)}
                   >
-                    <div className="size-7 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden">
+                    <div className="size-7 rounded-full bg-white/10 ring-1 ring-white/15 flex items-center justify-center overflow-hidden">
                       {user.image ? (
                         <img src={user.image} alt={user.name} className="w-full h-full object-cover" />
                       ) : (
-                        <span className="text-xs font-bold text-primary">{user.name.charAt(0).toUpperCase()}</span>
+                        <span className="text-xs font-bold text-gold">{user.name.charAt(0).toUpperCase()}</span>
                       )}
                     </div>
                     <span className="hidden sm:inline text-xs max-w-[80px] truncate">{user.name}</span>
@@ -330,33 +608,37 @@ function Header() {
                           animate={{ opacity: 1, y: 0, scale: 1 }}
                           exit={{ opacity: 0, y: 8, scale: 0.95 }}
                           transition={{ duration: 0.15 }}
-                          className="absolute right-0 top-full mt-2 w-64 bg-card border rounded-xl shadow-xl z-50 overflow-hidden"
+                          className="absolute right-0 top-full mt-2 w-64 rounded-xl shadow-2xl z-[100] overflow-hidden border border-white/10 text-white"
                         >
-                          <div className="p-4 border-b">
+                          <div className="absolute inset-0 royal-hero-bg" />
+                          <div className="absolute inset-0 bg-black/25 pointer-events-none" />
+                          <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-gold/40 to-transparent" />
+
+                          <div className="relative p-4 border-b border-white/10">
                             <div className="flex items-center gap-3">
-                              <div className="size-10 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden">
+                              <div className="size-10 rounded-full bg-white/10 ring-2 ring-gold/30 flex items-center justify-center overflow-hidden">
                                 {user.image ? (
                                   <img src={user.image} alt={user.name} className="w-full h-full object-cover" />
                                 ) : (
-                                  <span className="text-sm font-bold text-primary">{user.name.charAt(0).toUpperCase()}</span>
+                                  <span className="text-sm font-bold text-gold">{user.name.charAt(0).toUpperCase()}</span>
                                 )}
                               </div>
                               <div className="min-w-0">
                                 <p className="font-semibold text-sm truncate">{user.name}</p>
-                                <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                                <p className="text-xs text-white/60 truncate">{user.email}</p>
                                 {user.role === 'admin' && (
-                                  <Badge variant="secondary" className="text-[10px] mt-1">
+                                  <Badge className="text-[10px] mt-1 bg-gold/15 text-gold border border-gold/25 hover:bg-gold/20">
                                     <ShieldCheck className="size-3 mr-1" /> Admin
                                   </Badge>
                                 )}
                               </div>
                             </div>
                           </div>
-                          <div className="p-2">
+                          <div className="relative p-2">
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="w-full justify-start gap-2 text-sm"
+                              className="w-full justify-start gap-2 text-sm text-white/80 hover:bg-white/10 hover:text-white"
                               onClick={() => { setView({ view: 'profile' }); setUserMenuOpen(false) }}
                             >
                               <UserCircle className="size-4" /> My Profile
@@ -365,17 +647,17 @@ function Header() {
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                className="w-full justify-start gap-2 text-sm"
+                                className="w-full justify-start gap-2 text-sm text-white/80 hover:bg-white/10 hover:text-white"
                                 onClick={() => { setView({ view: 'admin' }); setUserMenuOpen(false) }}
                               >
                                 <BarChart3 className="size-4" /> Admin Dashboard
                               </Button>
                             )}
-                            <Separator className="my-1" />
+                            <Separator className="my-1 bg-white/10" />
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="w-full justify-start gap-2 text-sm text-destructive hover:text-destructive"
+                              className="w-full justify-start gap-2 text-sm text-red-300 hover:text-red-200 hover:bg-red-500/10"
                               onClick={handleSignOut}
                             >
                               <LogOut className="size-4" /> Sign Out
@@ -388,9 +670,8 @@ function Header() {
                 </div>
               ) : (
                 <Button
-                  variant="default"
                   size="sm"
-                  className="gap-1.5 h-8"
+                  className="gap-1.5 h-8 bg-gold text-green-950 hover:bg-gold/90 font-semibold"
                   onClick={() => setView({ view: 'signin' })}
                 >
                   <LogIn className="size-3.5" />
@@ -403,7 +684,7 @@ function Header() {
           {/* Mobile Menu */}
           <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
             <SheetTrigger asChild>
-              <Button variant="ghost" size="icon" className="md:hidden size-8">
+              <Button variant="ghost" size="icon" className="md:hidden size-8 text-white/80 hover:bg-white/10 hover:text-white">
                 <Menu className="size-4" />
               </Button>
             </SheetTrigger>
@@ -419,7 +700,7 @@ function Header() {
                   >
                     <item.icon className="size-4" />
                     {item.label}
-                    {item.badge > 0 && (
+                    {item.badge != null && item.badge > 0 && (
                       <Badge variant="destructive" className="ml-auto">{item.badge}</Badge>
                     )}
                   </Button>
@@ -443,6 +724,11 @@ function Header() {
                     <Button variant="ghost" className="justify-start gap-3" onClick={() => { setView({ view: 'profile' }); setMobileOpen(false) }}>
                       <UserCircle className="size-4" /> My Profile
                     </Button>
+                    {user.role === 'admin' && (
+                      <Button variant="ghost" className="justify-start gap-3" onClick={() => { setView({ view: 'admin' }); setMobileOpen(false) }}>
+                        <BarChart3 className="size-4" /> Admin Dashboard
+                      </Button>
+                    )}
                     <Button variant="ghost" className="justify-start gap-3 text-destructive hover:text-destructive" onClick={handleSignOut}>
                       <LogOut className="size-4" /> Sign Out
                     </Button>
@@ -470,75 +756,173 @@ function Header() {
 
 function Footer() {
   const { setView } = useAppStore()
+  const currentYear = new Date().getFullYear()
+
+  const quickLinks = [
+    { label: 'Home', view: 'home' as const },
+    { label: 'Shop All', view: 'products' as const },
+    { label: 'About Us', view: 'about' as const },
+    { label: 'Contact', view: 'contact' as const },
+    { label: 'Wishlist', view: 'wishlist' as const },
+    { label: 'Cart', view: 'cart' as const },
+  ]
+
+  const categories = [
+    { label: 'Morocco', slug: 'morocco' },
+    { label: 'Korea', slug: 'korea' },
+    { label: 'Supplements', slug: 'supplements' },
+    { label: 'Clothing', slug: 'clothing' },
+    { label: 'Fragrances', slug: 'fragrances' },
+  ]
+
   return (
-    <footer className="mt-auto border-t bg-card/50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-10">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
-          {/* About */}
-          <div>
-            <div className="flex items-center gap-2 mb-4">
-              <img src="/alifaain-logo.jpg" alt="Alifaain" className="h-8 w-8 rounded-full object-cover" />
-              <span className="font-serif text-lg font-bold gold-text">Alifaain</span>
+    <footer className="mt-auto relative overflow-hidden">
+      <div className="absolute inset-0 royal-hero-bg" />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent pointer-events-none" />
+      <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-gold/40 to-transparent" />
+
+      <div className="relative max-w-7xl mx-auto px-4 sm:px-6">
+        {/* Brand strip */}
+        <div className="py-12 lg:py-14 border-b border-white/10">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-8">
+            <div className="max-w-xl">
+              <button
+                onClick={() => setView({ view: 'home' })}
+                className="flex items-center gap-3 group cursor-pointer mb-5"
+              >
+                <img
+                  src="/alifaain-logo.jpg"
+                  alt="Alifaain"
+                  className="h-11 w-11 rounded-full object-cover ring-2 ring-gold/30 group-hover:ring-gold/60 transition-all cursor-pointer"
+                />
+                <div className="text-left">
+                  <span className="font-serif text-2xl font-bold gold-text block">Alif Aain</span>
+                  <span className="text-[11px] uppercase tracking-[0.2em] text-white/50">Flagship of Standards</span>
+                </div>
+              </button>
+              <p className="text-sm text-white/70 leading-relaxed">
+                Curated beauty, wellness, knowledge, and style from around the globe — where heritage meets refinement.
+              </p>
             </div>
-            <p className="text-sm text-muted-foreground leading-relaxed">
-              Your destination for authentic Moroccan beauty traditions and innovative Korean skincare. Premium quality, delivered with care.
-            </p>
-            <div className="flex gap-3 mt-4">
-              <Button variant="ghost" size="icon" className="size-8 text-muted-foreground hover:text-primary"><Instagram className="size-4" /></Button>
-              <Button variant="ghost" size="icon" className="size-8 text-muted-foreground hover:text-primary"><Twitter className="size-4" /></Button>
-              <Button variant="ghost" size="icon" className="size-8 text-muted-foreground hover:text-primary"><Facebook className="size-4" /></Button>
+
+            <div className="flex flex-col sm:flex-row gap-3 lg:shrink-0">
+              <Button
+                size="lg"
+                className="bg-gold text-green-950 hover:bg-gold/90 font-semibold gap-2"
+                onClick={() => setView({ view: 'products' })}
+              >
+                Explore Collection <ArrowRight className="size-4" />
+              </Button>
+              <Button
+                size="lg"
+                variant="outline"
+                className="bg-transparent border-white/30 text-white hover:bg-white/10 hover:text-white shadow-none"
+                onClick={() => setView({ view: 'contact' })}
+              >
+                Get in Touch
+              </Button>
             </div>
-          </div>
-
-          {/* Quick Links */}
-          <div>
-            <h4 className="font-serif font-semibold mb-4">Quick Links</h4>
-            <ul className="space-y-2 text-sm text-muted-foreground">
-              {[
-                { label: 'Home', view: 'home' as const },
-                { label: 'Shop All', view: 'products' as const },
-                { label: 'About Us', view: 'about' as const },
-                { label: 'Contact', view: 'contact' as const },
-                { label: 'Cart', view: 'cart' as const },
-              ].map(l => (
-                <li key={l.view}>
-                  <button onClick={() => setView({ view: l.view })} className="hover:text-primary transition-colors">
-                    {l.label}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {/* Categories */}
-          <div>
-            <h4 className="font-serif font-semibold mb-4">Categories</h4>
-            <ul className="space-y-2 text-sm text-muted-foreground">
-              {['Morocco', 'Korea', 'Supplements', 'Clothing', 'Fragrances'].map(c => (
-                <li key={c}>
-                  <button onClick={() => setView({ view: 'products', params: { category: c.toLowerCase() } })} className="hover:text-primary transition-colors">
-                    {c}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {/* Contact */}
-          <div>
-            <h4 className="font-serif font-semibold mb-4">Contact</h4>
-            <ul className="space-y-3 text-sm text-muted-foreground">
-              <li className="flex items-center gap-2"><Mail className="size-4 text-primary" /> hello@alifaain.com</li>
-              <li className="flex items-center gap-2"><Phone className="size-4 text-primary" /> +966 50 123 4567</li>
-              <li className="flex items-center gap-2"><MapPin className="size-4 text-primary" /> Riyadh, Saudi Arabia</li>
-            </ul>
           </div>
         </div>
 
-        <Separator className="my-6" />
+        {/* Links grid */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-8 lg:gap-12 py-12 lg:py-14">
+          <div>
+            <h4 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gold mb-5">Navigate</h4>
+            <ul className="space-y-3">
+              {quickLinks.map(link => (
+                <li key={link.view}>
+                  <button
+                    onClick={() => setView({ view: link.view })}
+                    className="text-sm text-white/70 hover:text-white transition-colors inline-flex items-center gap-1.5 group cursor-pointer"
+                  >
+                    <ChevronRight className="size-3.5 text-gold/60 group-hover:translate-x-0.5 transition-transform" />
+                    {link.label}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
 
-        <div className="text-center text-xs text-muted-foreground">
-          © 2024 Alifaain. All rights reserved.
+          <div>
+            <h4 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gold mb-5">Categories</h4>
+            <ul className="space-y-3">
+              {categories.map(cat => (
+                <li key={cat.slug}>
+                  <button
+                    onClick={() => setView({ view: 'products', params: { category: cat.slug } })}
+                    className="text-sm text-white/70 hover:text-white transition-colors inline-flex items-center gap-1.5 group cursor-pointer"
+                  >
+                    <ChevronRight className="size-3.5 text-gold/60 group-hover:translate-x-0.5 transition-transform" />
+                    {cat.label}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="col-span-2 md:col-span-1">
+            <h4 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gold mb-5">Contact</h4>
+            <ul className="space-y-4">
+              <li>
+                <a
+                  href={`mailto:${CONTACT_EMAIL}`}
+                  className="flex items-start gap-3 text-sm text-white/70 hover:text-white transition-colors group"
+                >
+                  <span className="size-9 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center shrink-0 group-hover:border-gold/30 transition-colors">
+                    <Mail className="size-4 text-gold" />
+                  </span>
+                  <span className="pt-1.5 break-all">{CONTACT_EMAIL}</span>
+                </a>
+              </li>
+              <li>
+                <a
+                  href={`tel:${CONTACT_PHONE.replace(/\s/g, '')}`}
+                  className="flex items-start gap-3 text-sm text-white/70 hover:text-white transition-colors group"
+                >
+                  <span className="size-9 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center shrink-0 group-hover:border-gold/30 transition-colors">
+                    <Phone className="size-4 text-gold" />
+                  </span>
+                  <span className="pt-1.5">{CONTACT_PHONE}</span>
+                </a>
+              </li>
+              <li className="flex items-start gap-3 text-sm text-white/70">
+                <span className="size-9 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center shrink-0">
+                  <MapPin className="size-4 text-gold" />
+                </span>
+                <span className="pt-1.5">Riyadh, Saudi Arabia</span>
+              </li>
+            </ul>
+          </div>
+
+          <div className="col-span-2 md:col-span-1">
+            <h4 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gold mb-5">Follow Us</h4>
+            <p className="text-sm text-white/60 mb-4 leading-relaxed">
+              Join us for new arrivals, beauty insights, and exclusive offers.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {SOCIAL_LINKS.map(social => (
+                <SocialLinkButton
+                  key={social.label}
+                  href={social.href}
+                  label={social.label}
+                  icon={social.icon}
+                  variant="outline"
+                  className="size-10 bg-white/5 border-white/15 text-white/80 hover:bg-white/10 hover:text-white hover:border-gold/30 shadow-none"
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Bottom bar */}
+        <div className="py-6 border-t border-white/10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <p className="text-xs text-white/50">
+            © {currentYear} Alif Aain. All rights reserved.
+          </p>
+          <p className="text-xs text-white/40 italic font-serif">
+            Curated with Purpose. Inspired by the World. Defined by Excellence.
+          </p>
         </div>
       </div>
     </footer>
@@ -553,44 +937,44 @@ const promoBanners = [
     title: 'Moroccan Beauty Week',
     subtitle: 'Up to 30% OFF',
     description: 'Discover authentic Moroccan skincare with exclusive discounts on Argan Oil, Nila Powder & more',
-    gradient: 'from-amber-600 via-orange-500 to-red-500',
+    gradient: 'from-emerald-950 via-green-900 to-teal-950',
     emoji: '🇲🇦',
     cta: 'Shop Morocco',
     category: 'morocco',
-    image: '/images/banners/morocco-banner.png',
+    image: '/images/categories/morocco.png',
   },
   {
     id: 2,
     title: 'K-Beauty Festival',
     subtitle: 'Save up to 25%',
     description: 'Premium Korean skincare essentials — Centella, Hyalu-Cica & Retinol at unbeatable prices',
-    gradient: 'from-rose-400 via-pink-500 to-fuchsia-500',
+    gradient: 'from-green-950 via-emerald-900 to-green-950',
     emoji: '🇰🇷',
     cta: 'Shop Korea',
     category: 'korea',
-    image: '/images/banners/korea-banner.png',
+    image: '/images/categories/korea.png',
   },
   {
     id: 3,
     title: 'Wellness Sale',
     subtitle: '20% OFF Supplements',
     description: 'Boost your inner beauty with our premium Shilajit & wellness packs',
-    gradient: 'from-emerald-500 via-teal-500 to-cyan-500',
+    gradient: 'from-teal-950 via-emerald-950 to-green-950',
     emoji: '💊',
     cta: 'Shop Supplements',
     category: 'supplements',
-    image: '/images/banners/supplements-banner.png',
+    image: '/images/categories/supplements.png',
   },
   {
     id: 4,
     title: 'Free Shipping',
     subtitle: 'Orders over 200 SAR',
     description: 'Enjoy free delivery across Saudi Arabia on all orders above 200 SAR',
-    gradient: 'from-violet-500 via-purple-500 to-indigo-500',
+    gradient: 'from-emerald-800 via-green-700 to-teal-900',
     emoji: '🚚',
     cta: 'Start Shopping',
     category: '',
-    image: '/images/banners/shipping-banner.png',
+    image: '/images/hero/banner.png',
   },
 ]
 
@@ -632,9 +1016,9 @@ function PromoBannerSlider() {
                 alt={promoBanners[current].title}
                 className="absolute inset-0 w-full h-full object-cover"
               />
-              {/* Gradient Overlay - stronger on left for text readability */}
-              <div className={`absolute inset-0 bg-gradient-to-r ${promoBanners[current].gradient} opacity-70`} />
-              <div className="absolute inset-0 bg-gradient-to-r from-black/60 via-black/30 to-transparent" />
+              {/* Gradient Overlay - royal green tint for text readability */}
+              <div className={`absolute inset-0 bg-gradient-to-r ${promoBanners[current].gradient} opacity-45`} />
+              <div className="absolute inset-0 bg-gradient-to-r from-black/50 via-black/25 to-transparent" />
 
               {/* Content */}
               <div className="relative z-10 h-full flex items-center p-8 sm:p-12 lg:p-16">
@@ -758,18 +1142,18 @@ function HomeView({ products, categories: apiCategories }: { products: Product[]
   return (
     <div>
       {/* Hero Section */}
-      <section className="relative overflow-hidden py-20 sm:py-28 lg:py-36">
+      <section className="relative overflow-hidden py-20 sm:py-28 lg:py-36 royal-hero-bg text-white -mt-px">
         <div className="absolute inset-0">
-          <img src="/images/hero/banner.png" alt="Alifaain Beauty" className="w-full h-full object-cover opacity-20" />
-          <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-amber-500/5 to-orange-500/10" />
+          <img src="/images/hero/banner.png" alt="Alifaain Beauty" className="w-full h-full object-cover opacity-40" />
+          <div className="absolute inset-0 bg-gradient-to-br from-emerald-950/60 via-green-950/50 to-teal-950/55" />
         </div>
-        <div className="absolute top-10 right-10 w-72 h-72 bg-primary/10 rounded-full blur-3xl animate-float" />
-        <div className="absolute bottom-10 left-10 w-96 h-96 bg-amber-400/10 rounded-full blur-3xl animate-float" style={{ animationDelay: '1s' }} />
-        <div className="absolute top-1/2 left-1/2 w-40 h-40 bg-orange-300/10 rounded-full blur-2xl animate-float" style={{ animationDelay: '2s' }} />
+        <div className="absolute top-10 right-10 w-72 h-72 bg-emerald-500/10 rounded-full blur-3xl animate-float" />
+        <div className="absolute bottom-10 left-10 w-96 h-96 bg-green-400/10 rounded-full blur-3xl animate-float" style={{ animationDelay: '1s' }} />
+        <div className="absolute top-1/2 left-1/2 w-40 h-40 bg-gold/10 rounded-full blur-2xl animate-float" style={{ animationDelay: '2s' }} />
 
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 text-center">
           <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
-            <Badge variant="secondary" className="mb-6 px-4 py-1.5 text-sm font-medium">
+            <Badge className="mb-6 px-4 py-1.5 text-sm font-medium bg-gold/15 text-gold border border-gold/25 hover:bg-gold/20">
               <Sparkles className="size-3.5 mr-1.5" /> Premium Beauty & Skincare
             </Badge>
           </motion.div>
@@ -786,7 +1170,7 @@ function HomeView({ products, categories: apiCategories }: { products: Product[]
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.2 }}
-            className="text-muted-foreground text-lg sm:text-xl max-w-2xl mx-auto mb-8"
+            className="text-white/75 text-lg sm:text-xl max-w-2xl mx-auto mb-8"
           >
             Authentic Moroccan traditions meet innovative Korean skincare. Experience the best of both worlds.
           </motion.p>
@@ -796,12 +1180,17 @@ function HomeView({ products, categories: apiCategories }: { products: Product[]
             transition={{ duration: 0.6, delay: 0.3 }}
             className="flex flex-col sm:flex-row gap-4 justify-center"
           >
-            <Button size="lg" className="text-base px-8" onClick={() => setView({ view: 'products' })}>
+            <Button size="lg" className="text-base px-8 bg-gold text-green-950 hover:bg-gold/90 font-semibold border-0" onClick={() => setView({ view: 'products' })}>
               Shop Now <ArrowRight className="size-4 ml-1" />
             </Button>
-            <Button size="lg" variant="outline" className="text-base px-8" onClick={() => {
-              document.getElementById('categories-section')?.scrollIntoView({ behavior: 'smooth' })
-            }}>
+            <Button
+              size="lg"
+              variant="outline"
+              className="text-base px-8 bg-transparent border-white/40 text-white hover:bg-white/10 hover:text-white shadow-none dark:bg-transparent dark:border-white/40 dark:hover:bg-white/10"
+              onClick={() => {
+                document.getElementById('categories-section')?.scrollIntoView({ behavior: 'smooth' })
+              }}
+            >
               Explore Categories
             </Button>
           </motion.div>
@@ -890,7 +1279,7 @@ function HomeView({ products, categories: apiCategories }: { products: Product[]
         <section className="py-16 sm:py-20">
           <div className="max-w-7xl mx-auto px-4 sm:px-6">
             <motion.div {...fadeIn} viewport={{ once: true }} className="text-center mb-10">
-              <Badge className="mb-4 px-4 py-1.5 text-sm font-medium bg-red-500 text-white border-0 hover:bg-red-600">
+              <Badge className="mb-4 px-4 py-1.5 text-sm font-medium bg-primary text-gold border-0 hover:bg-primary/90">
                 <Sparkles className="size-3.5 mr-1.5" /> Hot Deals
               </Badge>
               <h2 className="font-serif text-3xl sm:text-4xl font-bold mb-3">Special Offers</h2>
@@ -1006,13 +1395,16 @@ function ProductCard({ product }: { product: Product }) {
             <span className="text-4xl font-bold text-white/30 font-serif">{getProductInitials(product.name)}</span>
           )}
           <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" />
-          <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
-            <Button size="icon" variant="secondary" className="size-8 rounded-full" onClick={handleAdd}>
-              <ShoppingCart className="size-3.5" />
-            </Button>
+          <div className="absolute top-2 right-2 flex gap-1">
+            <WishlistButton product={product} />
+            <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+              <Button size="icon" variant="secondary" className="size-8 rounded-full" onClick={handleAdd}>
+                <ShoppingCart className="size-3.5" />
+              </Button>
+            </div>
           </div>
           {product.discount > 0 && (
-            <Badge className="absolute top-2 left-2 bg-red-500 text-white border-0 text-[10px] font-bold">
+            <Badge className="absolute top-2 left-2 bg-primary text-gold border-0 text-[10px] font-bold">
               -{product.discount}%
             </Badge>
           )}
@@ -1048,12 +1440,40 @@ function ProductCard({ product }: { product: Product }) {
 function AboutView() {
   const { setView } = useAppStore()
 
+  const collectionCategories = [
+    {
+      icon: Sparkles,
+      title: 'Skincare',
+      desc: 'Authentic organic Moroccan beauty traditions, advanced Korean skincare innovations, and time-honoured Indian formulations rooted in centuries of wellness wisdom.',
+    },
+    {
+      icon: Heart,
+      title: 'Wellness & Supplements',
+      desc: 'Thoughtfully sourced products designed to support vitality, balance, and overall well-being.',
+    },
+    {
+      icon: Star,
+      title: 'Fragrances',
+      desc: 'Exquisite perfumes that leave a lasting impression and express individuality with elegance.',
+    },
+    {
+      icon: Package,
+      title: 'Literature',
+      desc: 'Books that educate, inspire, challenge perspectives, and enrich the mind.',
+    },
+    {
+      icon: ShoppingBag,
+      title: 'Fashion & Apparel',
+      desc: 'Carefully selected clothing that embodies sophistication, confidence, and timeless style.',
+    },
+  ]
+
   return (
     <div>
       {/* Hero Section */}
-      <section className="relative overflow-hidden py-20 sm:py-28">
+      <section className="relative overflow-hidden py-20 sm:py-28 -mt-px">
         <div className="absolute inset-0">
-          <img src="/images/about/our-story.png" alt="Our Story" className="w-full h-full object-cover" />
+          <img src="/images/about/our-story.png" alt="About Us" className="w-full h-full object-cover" />
           <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/50 to-black/30" />
         </div>
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6">
@@ -1061,23 +1481,23 @@ function AboutView() {
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6 }}
-            className="max-w-2xl"
+            className="max-w-3xl"
           >
             <Badge className="mb-4 bg-primary/90 text-primary-foreground border-0">
-              <Sparkles className="size-3.5 mr-1.5" /> Our Story
+              <Info className="size-3.5 mr-1.5" /> About Us
             </Badge>
             <h1 className="font-serif text-4xl sm:text-5xl lg:text-6xl font-bold mb-6 text-white leading-tight">
-              Where Ancient Traditions Meet{' '}
-              <span className="gold-text">Modern Beauty</span>
+              Welcome to Alif Aain — Where Timeless Elegance Meets{' '}
+              <span className="gold-text">Modern Discovery</span>
             </h1>
-            <p className="text-white/80 text-lg sm:text-xl mb-8 max-w-lg">
-              Born from a passion for authentic beauty rituals, Alifaain bridges the timeless traditions of Morocco with the innovative science of Korean skincare.
+            <p className="text-white/80 text-lg sm:text-xl mb-4 max-w-2xl">
+              At Alif Aain, we believe that true luxury is not defined by excess, but by discernment.
             </p>
           </motion.div>
         </div>
       </section>
 
-      {/* Our Story Section */}
+      {/* About Section */}
       <section className="py-16 sm:py-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
@@ -1088,7 +1508,7 @@ function AboutView() {
               transition={{ duration: 0.5 }}
             >
               <div className="relative rounded-2xl overflow-hidden shadow-2xl">
-                <img src="/images/about/our-story.png" alt="Alifaain Beauty Products" className="w-full h-auto object-cover" />
+                <img src="/images/about/our-story.png" alt="Alif Aain" className="w-full h-auto object-cover" />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent" />
               </div>
             </motion.div>
@@ -1099,19 +1519,22 @@ function AboutView() {
               transition={{ duration: 0.5, delay: 0.2 }}
             >
               <Badge variant="secondary" className="mb-4">
-                <Info className="size-3.5 mr-1.5" /> About Alifaain
+                <Award className="size-3.5 mr-1.5" /> Flagship of Standards
               </Badge>
               <h2 className="font-serif text-3xl sm:text-4xl font-bold mb-6">
-                A Journey of <span className="gold-text">Beauty & Heritage</span>
+                Curated with Purpose. <span className="gold-text">Inspired by the World.</span>
               </h2>
               <p className="text-muted-foreground mb-4 leading-relaxed">
-                Alifaain was founded with a simple yet powerful vision — to bring the world&apos;s most authentic and effective beauty traditions to your doorstep. Our name, meaning &ldquo;thousands&rdquo; in Arabic, represents the thousands of women across generations who have perfected these beauty rituals.
+                It is found in the thoughtful selection of exceptional products, the appreciation of authentic craftsmanship, and the pursuit of a life lived with intention.
               </p>
               <p className="text-muted-foreground mb-4 leading-relaxed">
-                From the argan forests of Morocco to the cutting-edge laboratories of Seoul, we curate only the finest products that honor traditional wisdom while embracing modern innovation. Every product in our collection tells a story of heritage, quality, and transformation.
+                Founded with a vision to bring the world&apos;s finest treasures together under one distinguished destination, Alif Aain is a curated marketplace for those who value quality, heritage, and sophistication. From the sun-kissed argan groves of Morocco to the innovative skincare laboratories of Seoul, from the ancient botanical wisdom of India to the pages of transformative literature, we invite you to discover a world where global excellence meets refined living.
+              </p>
+              <p className="text-muted-foreground mb-4 leading-relaxed">
+                At the heart of our brand lies a simple yet unwavering principle: excellence without compromise. This commitment is reflected in our promise to be the Flagship of Standards—a destination where every product is carefully selected, every partnership is thoughtfully cultivated, and every customer experience is held to the highest level of distinction.
               </p>
               <p className="text-muted-foreground mb-6 leading-relaxed">
-                Based in Riyadh, Saudi Arabia, we serve beauty enthusiasts across the region and beyond, delivering premium skincare, traditional beauty essentials, and wellness supplements with care and authenticity.
+                More than a marketplace, Alif Aain is a celebration of culture, beauty, wellness, knowledge, and style. We are curators of a refined lifestyle, bringing together the world&apos;s most exceptional products for those who appreciate authenticity, quality, and timeless elegance.
               </p>
               <div className="flex flex-wrap gap-4">
                 <Button onClick={() => setView({ view: 'products' })} className="gap-2">
@@ -1126,7 +1549,7 @@ function AboutView() {
         </div>
       </section>
 
-      {/* Mission Section */}
+      {/* Philosophy Section */}
       <section className="py-16 sm:py-20 bg-secondary/30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
@@ -1138,19 +1561,22 @@ function AboutView() {
               className="order-2 lg:order-1"
             >
               <Badge variant="secondary" className="mb-4">
-                <Target className="size-3.5 mr-1.5" /> Our Mission
+                <Target className="size-3.5 mr-1.5" /> Our Philosophy
               </Badge>
               <h2 className="font-serif text-3xl sm:text-4xl font-bold mb-6">
-                Empowering Beauty Through <span className="gold-text">Authenticity</span>
+                Every Product Has a <span className="gold-text">Story Worth Telling</span>
               </h2>
+              <p className="text-muted-foreground mb-4 leading-relaxed">
+                Each item within our collection is chosen with purpose—not only for its quality and effectiveness, but also for the heritage, craftsmanship, and values it represents. Our approach is guided by a commitment to authenticity, excellence, and sophistication, ensuring that every product enriches daily life and transforms ordinary moments into extraordinary experiences.
+              </p>
               <p className="text-muted-foreground mb-6 leading-relaxed">
-                Our mission is to make authentic, time-tested beauty traditions accessible to everyone. We believe that true beauty comes from understanding and honoring the wisdom of centuries-old practices while leveraging the best of modern skincare science.
+                Whether it is a luxurious skincare ritual, a signature fragrance, an inspiring book, a wellness essential, or a beautifully crafted garment, our purpose is to help our customers embrace a lifestyle defined by refinement, confidence, and purpose.
               </p>
               <div className="space-y-4">
                 {[
-                  { icon: ShieldCheck, title: 'Authenticity First', desc: 'Every product is sourced directly from trusted artisans and manufacturers.' },
-                  { icon: Leaf, title: 'Natural Ingredients', desc: 'We prioritize natural, sustainably-sourced ingredients in every formulation.' },
-                  { icon: Heart, title: 'Community Driven', desc: 'We support the communities and artisans who create these beauty treasures.' },
+                  { icon: ShieldCheck, title: 'Authenticity', desc: 'Every product reflects genuine heritage, craftsmanship, and values.' },
+                  { icon: Award, title: 'Excellence', desc: 'We uphold the highest standards in quality and customer experience.' },
+                  { icon: Sparkles, title: 'Sophistication', desc: 'We curate products that transform everyday moments into something extraordinary.' },
                 ].map(item => (
                   <div key={item.title} className="flex items-start gap-4">
                     <div className="size-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
@@ -1172,7 +1598,7 @@ function AboutView() {
               className="order-1 lg:order-2"
             >
               <div className="relative rounded-2xl overflow-hidden shadow-2xl">
-                <img src="/images/about/mission.png" alt="Our Mission" className="w-full h-auto object-cover" />
+                <img src="/images/about/mission.png" alt="Our Philosophy" className="w-full h-auto object-cover" />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent" />
               </div>
             </motion.div>
@@ -1180,43 +1606,55 @@ function AboutView() {
         </div>
       </section>
 
-      {/* Stats Section */}
+      {/* Collection Section */}
       <section className="py-16 sm:py-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <motion.div {...fadeIn} viewport={{ once: true }} className="text-center mb-12">
-            <h2 className="font-serif text-3xl sm:text-4xl font-bold mb-4">Alifaain in Numbers</h2>
-            <p className="text-muted-foreground max-w-xl mx-auto">Growing every day with the trust of our valued customers</p>
+            <Badge variant="secondary" className="mb-4">
+              <Store className="size-3.5 mr-1.5" /> Our Collection
+            </Badge>
+            <h2 className="font-serif text-3xl sm:text-4xl font-bold mb-4">
+              The Many Facets of <span className="gold-text">Modern Living</span>
+            </h2>
+            <p className="text-muted-foreground max-w-2xl mx-auto">
+              Our carefully curated selection reflects the many facets of modern living—and this is only the beginning.
+            </p>
           </motion.div>
           <motion.div
             variants={staggerContainer}
             initial="initial"
             whileInView="animate"
             viewport={{ once: true }}
-            className="grid grid-cols-2 sm:grid-cols-4 gap-6"
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"
           >
-            {[
-              { icon: ShoppingBag, value: '44+', label: 'Premium Products' },
-              { icon: Globe, value: '21+', label: 'Countries Served' },
-              { icon: Users, value: '5000+', label: 'Happy Customers' },
-              { icon: Award, value: '100%', label: 'Authentic & Genuine' },
-            ].map(stat => (
-              <motion.div key={stat.label} variants={staggerItem}>
-                <Card className="text-center h-full gradient-border hover:shadow-lg transition-shadow">
-                  <CardContent className="pt-8 pb-6 flex flex-col items-center">
-                    <div className="size-14 rounded-full bg-primary/10 flex items-center justify-center mb-4">
-                      <stat.icon className="size-7 text-primary" />
+            {collectionCategories.map(category => (
+              <motion.div key={category.title} variants={staggerItem}>
+                <Card className="h-full gradient-border hover:shadow-lg transition-shadow">
+                  <CardContent className="pt-8 pb-6">
+                    <div className="size-12 rounded-full bg-primary/10 flex items-center justify-center mb-4">
+                      <category.icon className="size-6 text-primary" />
                     </div>
-                    <p className="font-serif text-3xl sm:text-4xl font-bold gold-text mb-2">{stat.value}</p>
-                    <p className="text-sm text-muted-foreground">{stat.label}</p>
+                    <h3 className="font-serif text-xl font-bold mb-3">{category.title}</h3>
+                    <p className="text-sm text-muted-foreground leading-relaxed">{category.desc}</p>
                   </CardContent>
                 </Card>
               </motion.div>
             ))}
+            <motion.div variants={staggerItem} className="sm:col-span-2 lg:col-span-3">
+              <Card className="gradient-border bg-secondary/20 border-dashed">
+                <CardContent className="py-8 text-center">
+                  <Globe className="size-8 text-primary mx-auto mb-3" />
+                  <p className="text-muted-foreground max-w-2xl mx-auto leading-relaxed">
+                    As Alif Aain continues to grow, we will introduce even more exceptional products, brands, and discoveries from around the world—each chosen according to the same uncompromising standards that define our name.
+                  </p>
+                </CardContent>
+              </Card>
+            </motion.div>
           </motion.div>
         </div>
       </section>
 
-      {/* Team Section */}
+      {/* Promise Section */}
       <section className="py-16 sm:py-20 bg-secondary/30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
@@ -1227,7 +1665,7 @@ function AboutView() {
               transition={{ duration: 0.5 }}
             >
               <div className="relative rounded-2xl overflow-hidden shadow-2xl">
-                <img src="/images/about/team.png" alt="Our Team" className="w-full h-auto object-cover" />
+                <img src="/images/about/team.png" alt="Our Promise" className="w-full h-auto object-cover" />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent" />
               </div>
             </motion.div>
@@ -1238,21 +1676,24 @@ function AboutView() {
               transition={{ duration: 0.5, delay: 0.2 }}
             >
               <Badge variant="secondary" className="mb-4">
-                <Users className="size-3.5 mr-1.5" /> Our Team
+                <Handshake className="size-3.5 mr-1.5" /> Our Promise
               </Badge>
               <h2 className="font-serif text-3xl sm:text-4xl font-bold mb-6">
-                Passionate Experts, <span className="gold-text">Dedicated to You</span>
+                Excellence Without <span className="gold-text">Compromise</span>
               </h2>
               <p className="text-muted-foreground mb-4 leading-relaxed">
-                Behind Alifaain is a dedicated team of beauty enthusiasts, skincare experts, and customer care professionals who share one common goal — helping you discover your best self.
+                Every product that bears the Alif Aain name has been thoughtfully vetted and selected to meet the highest standards of excellence.
+              </p>
+              <p className="text-muted-foreground mb-4 leading-relaxed">
+                We collaborate with trusted artisans, heritage producers, innovative creators, and respected brands who share our dedication to craftsmanship, integrity, and quality. Our commitment extends beyond commerce; it is reflected in every detail of the experience we create for our customers.
               </p>
               <p className="text-muted-foreground mb-6 leading-relaxed">
-                Our team includes certified dermatologists, traditional beauty practitioners, and product specialists who carefully vet every item in our collection. We personally test and approve each product to ensure it meets our high standards of quality and authenticity.
+                When you choose Alif Aain, you are not simply making a purchase—you are investing in quality, embracing global craftsmanship, and choosing products that reflect a higher standard of living.
               </p>
               <div className="grid grid-cols-2 gap-4">
                 {[
                   { icon: Handshake, label: 'Trusted Partners' },
-                  { icon: Award, label: 'Quality Certified' },
+                  { icon: Award, label: 'Highest Standards' },
                   { icon: Star, label: 'Expert Curated' },
                   { icon: ShieldCheck, label: 'Verified Authentic' },
                 ].map(item => (
@@ -1267,6 +1708,37 @@ function AboutView() {
         </div>
       </section>
 
+      {/* Vision Section */}
+      <section className="py-16 sm:py-20">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6">
+          <motion.div
+            {...fadeIn}
+            viewport={{ once: true }}
+            className="max-w-3xl mx-auto text-center"
+          >
+            <Badge variant="secondary" className="mb-4">
+              <Globe className="size-3.5 mr-1.5" /> Our Vision
+            </Badge>
+            <h2 className="font-serif text-3xl sm:text-4xl font-bold mb-6">
+              Where Heritage Meets <span className="gold-text">Innovation</span>
+            </h2>
+            <p className="text-muted-foreground text-lg leading-relaxed mb-8">
+              To become a globally trusted destination for discerning individuals seeking the finest products from across the world—where heritage meets innovation, tradition meets modernity, and luxury becomes a way of life.
+            </p>
+            <div className="space-y-2">
+              <p className="font-serif text-2xl sm:text-3xl font-bold gold-text">Alif Aain</p>
+              <p className="text-muted-foreground italic">
+                Curated with Purpose. Inspired by the World. Defined by Excellence.
+              </p>
+              <p className="text-muted-foreground pt-4 leading-relaxed">
+                Bringing together beauty, wellness, knowledge, and style from around the globe for those who demand nothing less than the exceptional.
+              </p>
+              <p className="font-serif text-lg font-semibold pt-2">Alif Aain — Flagship of Standards.</p>
+            </div>
+          </motion.div>
+        </div>
+      </section>
+
       {/* CTA Section */}
       <section className="py-16 sm:py-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
@@ -1275,14 +1747,14 @@ function AboutView() {
             viewport={{ once: true }}
             className="relative rounded-2xl overflow-hidden p-8 sm:p-12 lg:p-16 text-center"
           >
-            <div className="absolute inset-0 bg-gradient-to-r from-primary via-amber-600 to-primary" />
+            <div className="absolute inset-0 bg-gradient-to-r from-primary via-emerald-800 to-primary" />
             <div className="absolute inset-0 bg-black/20" />
             <div className="relative z-10">
               <h2 className="font-serif text-3xl sm:text-4xl font-bold text-white mb-4">
-                Ready to Experience the Difference?
+                Discover the Exceptional
               </h2>
               <p className="text-white/80 text-lg max-w-xl mx-auto mb-8">
-                Discover our curated collection of authentic Moroccan and innovative Korean beauty products.
+                Explore our curated collection of beauty, wellness, knowledge, and style from around the globe.
               </p>
               <div className="flex flex-col sm:flex-row gap-4 justify-center">
                 <Button
@@ -1295,7 +1767,7 @@ function AboutView() {
                 <Button
                   size="lg"
                   variant="outline"
-                  className="border-white/30 text-white hover:bg-white/10 gap-2"
+                  className="bg-transparent border-white/40 text-white hover:bg-white/10 hover:text-white shadow-none gap-2 dark:bg-transparent dark:border-white/40 dark:hover:bg-white/10"
                   onClick={() => setView({ view: 'contact' })}
                 >
                   Contact Us <MessageSquare className="size-4" />
@@ -1338,7 +1810,7 @@ function ContactView() {
   return (
     <div>
       {/* Hero Section */}
-      <section className="relative overflow-hidden py-20 sm:py-28">
+      <section className="relative overflow-hidden py-20 sm:py-28 -mt-px">
         <div className="absolute inset-0">
           <img src="/images/contact/hero.png" alt="Contact Us" className="w-full h-full object-cover" />
           <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/50 to-black/30" />
@@ -1377,30 +1849,30 @@ function ContactView() {
               {
                 icon: Mail,
                 title: 'Email Us',
-                detail: 'hello@alifaain.com',
+                detail: CONTACT_EMAIL,
                 sub: 'We reply within 24 hours',
-                color: 'bg-blue-500/10 text-blue-500',
+                color: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
               },
               {
                 icon: Phone,
                 title: 'Call Us',
-                detail: '+966 50 123 4567',
+                detail: CONTACT_PHONE,
                 sub: 'Sun–Thu, 9AM–6PM AST',
-                color: 'bg-emerald-500/10 text-emerald-500',
+                color: 'bg-primary/10 text-primary',
               },
               {
                 icon: MapPin,
                 title: 'Visit Us',
                 detail: 'Riyadh, Saudi Arabia',
                 sub: 'King Fahd Road District',
-                color: 'bg-amber-500/10 text-amber-500',
+                color: 'bg-gold/15 text-gold',
               },
               {
                 icon: Clock,
                 title: 'Business Hours',
                 detail: 'Sun–Thu: 9AM–6PM',
                 sub: 'Fri–Sat: Closed',
-                color: 'bg-purple-500/10 text-purple-500',
+                color: 'bg-green-500/10 text-green-600 dark:text-green-400',
               },
             ].map(item => (
               <motion.div key={item.title} variants={staggerItem}>
@@ -1528,16 +2000,18 @@ function ContactView() {
                 <CardContent className="p-6">
                   <h4 className="font-serif font-semibold text-lg mb-4">Follow Us on Social Media</h4>
                   <p className="text-sm text-muted-foreground mb-4">Stay updated with our latest products, beauty tips, and exclusive offers.</p>
-                  <div className="flex gap-3">
-                    {[
-                      { icon: Instagram, label: 'Instagram', color: 'hover:bg-pink-500/10 hover:text-pink-500' },
-                      { icon: Twitter, label: 'Twitter', color: 'hover:bg-sky-500/10 hover:text-sky-500' },
-                      { icon: Facebook, label: 'Facebook', color: 'hover:bg-blue-500/10 hover:text-blue-500' },
-                    ].map(social => (
-                      <Button key={social.label} variant="outline" size="lg" className={`gap-2 ${social.color}`}>
-                        <social.icon className="size-5" />
-                        <span className="hidden sm:inline">{social.label}</span>
-                      </Button>
+                  <div className="flex flex-wrap gap-3">
+                    {SOCIAL_LINKS.map(social => (
+                      <SocialLinkButton
+                        key={social.label}
+                        href={social.href}
+                        label={social.label}
+                        icon={social.icon}
+                        variant="outline"
+                        size="lg"
+                        showLabel
+                        className="gap-2 hover:bg-primary/10 hover:text-primary"
+                      />
                     ))}
                   </div>
                 </CardContent>
@@ -1836,13 +2310,16 @@ function ProductGridCard({ product }: { product: Product }) {
           )}
           <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" />
           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
+          <div className="absolute top-2 right-2 flex gap-1">
+            <WishlistButton product={product} className="opacity-100" />
+          </div>
           <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
             <Button size="sm" onClick={handleAdd} className="h-8">
               <ShoppingCart className="size-3.5 mr-1" /> Add to Cart
             </Button>
           </div>
           {product.discount > 0 && (
-            <Badge className="absolute top-2 left-2 bg-red-500 text-white border-0 text-[10px] font-bold">
+            <Badge className="absolute top-2 left-2 bg-primary text-gold border-0 text-[10px] font-bold">
               -{product.discount}%
             </Badge>
           )}
@@ -1852,7 +2329,7 @@ function ProductGridCard({ product }: { product: Product }) {
             </Badge>
           )}
           {product.stock < 10 && (
-            <Badge variant="destructive" className="absolute top-2 right-2 text-[10px]">Low Stock</Badge>
+            <Badge variant="destructive" className="absolute top-2 right-12 text-[10px]">Low Stock</Badge>
           )}
         </div>
         <CardContent className="p-4">
@@ -1980,15 +2457,13 @@ function ProductDetailView({ products }: { products: Product[] }) {
                 <span className="text-8xl font-bold text-white/15 font-serif">{getProductInitials(product.name)}</span>
               )}
               <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent pointer-events-none" />
+              <div className="absolute top-4 right-4 z-10">
+                <WishlistButton product={product} className="size-10 bg-white/90 hover:bg-white dark:bg-black/50 dark:hover:bg-black/70" />
+              </div>
               <div className="absolute top-4 left-4 flex gap-2 pointer-events-none">
                 <Badge className="bg-white/20 text-white border-0">{product.category.name}</Badge>
-                {product.discount > 0 && <Badge className="bg-red-500 text-white border-0 font-bold">-{product.discount}% OFF</Badge>}
+                {product.discount > 0 && <Badge className="bg-primary text-gold border-0 font-bold">-{product.discount}% OFF</Badge>}
                 {product.featured && product.discount === 0 && <Badge className="bg-white/20 text-white border-0"><Star className="size-3 mr-1" />Featured</Badge>}
-              </div>
-              <div className="absolute bottom-4 right-4 animate-float pointer-events-none">
-                <div className="size-16 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center">
-                  <Heart className="size-6 text-white/60" />
-                </div>
               </div>
             </div>
             {/* Thumbnail Strip */}
@@ -2020,7 +2495,7 @@ function ProductDetailView({ products }: { products: Product[] }) {
                 <div className="flex items-center gap-3">
                   <span className="text-3xl font-bold text-primary">{formatPrice(product.price * (1 - product.discount / 100), selectedCountry)}</span>
                   <span className="text-lg text-muted-foreground line-through">{formatPrice(product.price, selectedCountry)}</span>
-                  <Badge className="bg-red-500 text-white border-0">Save {product.discount}%</Badge>
+                  <Badge className="bg-primary text-gold border-0">Save {product.discount}%</Badge>
                 </div>
               ) : (
                 <span className="text-3xl font-bold text-primary">{formatPrice(product.price, selectedCountry)}</span>
@@ -2054,9 +2529,12 @@ function ProductDetailView({ products }: { products: Product[] }) {
               </div>
             </div>
 
-            <Button size="lg" className="w-full sm:w-auto px-12 text-base" onClick={handleAddToCart} disabled={product.stock === 0}>
-              <ShoppingCart className="size-5 mr-2" /> Add to Cart
-            </Button>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <Button size="lg" className="flex-1 sm:flex-none px-12 text-base" onClick={handleAddToCart} disabled={product.stock === 0}>
+                <ShoppingCart className="size-5 mr-2" /> Add to Cart
+              </Button>
+              <WishlistButton product={product} variant="inline" className="flex-1 sm:flex-none" />
+            </div>
           </div>
         </div>
 
@@ -2080,9 +2558,12 @@ function ProductDetailView({ products }: { products: Product[] }) {
 
 function CartView() {
   const { items, removeItem, updateQuantity, totalPrice } = useCartStore()
+  const { applied: appliedCoupon } = useCouponStore()
   const { setView, selectedCountry } = useAppStore()
   const total = totalPrice()
+  const couponDiscount = appliedCoupon?.discountAmount ?? 0
   const shipping = total >= 200 ? 0 : 25
+  const orderTotal = Math.max(0, total - couponDiscount + shipping)
 
   if (items.length === 0) {
     return (
@@ -2115,7 +2596,7 @@ function CartView() {
                       {item.image ? (
                         <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
                       ) : (
-                        <div className="w-full h-full bg-gradient-to-br from-primary/20 to-amber-500/20 flex items-center justify-center">
+                        <div className="w-full h-full bg-gradient-to-br from-primary/20 to-emerald-500/20 flex items-center justify-center">
                           <span className="text-lg font-bold text-primary/40 font-serif">{getProductInitials(item.name)}</span>
                         </div>
                       )}
@@ -2154,13 +2635,22 @@ function CartView() {
                 <CardTitle className="font-serif">Order Summary</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
+                <CouponInput subtotal={total} countryCode={selectedCountry} />
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Subtotal</span>
                   <span>{formatPrice(total, selectedCountry)}</span>
                 </div>
+                {couponDiscount > 0 && (
+                  <div className="flex justify-between text-sm text-primary">
+                    <span className="flex items-center gap-1">
+                      <Tag className="size-3.5" /> Coupon ({appliedCoupon?.code})
+                    </span>
+                    <span>-{formatPrice(couponDiscount, selectedCountry)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Shipping</span>
-                  <span>{shipping === 0 ? <span className="text-emerald-600 font-medium">Free</span> : formatPrice(shipping, selectedCountry)}</span>
+                  <span>{shipping === 0 ? <span className="text-primary font-medium">Free</span> : formatPrice(shipping, selectedCountry)}</span>
                 </div>
                 {total < 200 && (
                   <p className="text-xs text-muted-foreground">Add {formatPrice(200 - total, selectedCountry)} more for free shipping!</p>
@@ -2168,7 +2658,7 @@ function CartView() {
                 <Separator />
                 <div className="flex justify-between font-bold text-lg">
                   <span>Total</span>
-                  <span className="text-primary">{formatPrice(total + shipping, selectedCountry)}</span>
+                  <span className="text-primary">{formatPrice(orderTotal, selectedCountry)}</span>
                 </div>
                 <Button className="w-full mt-4" size="lg" onClick={() => setView({ view: 'checkout' })}>
                   Proceed to Checkout
@@ -2185,10 +2675,146 @@ function CartView() {
   )
 }
 
+// ─── Wishlist View ───────────────────────────────────────────────────────────
+
+function WishlistView({ products }: { products: Product[] }) {
+  const { items, removeItem } = useWishlistStore()
+  const { addItem } = useCartStore()
+  const { setView, selectedCountry } = useAppStore()
+  const { toast } = useToast()
+
+  const handleAddToCart = (item: typeof items[0], product?: Product) => {
+    const price = product ? getProductWishlistPrice(product) : item.price
+    addItem({
+      productId: item.productId,
+      name: item.name,
+      price,
+      quantity: 1,
+      image: item.image,
+    })
+    toast({ title: 'Added to cart', description: `${item.name} has been added to your cart.` })
+  }
+
+  const handleMoveToCart = (item: typeof items[0], product?: Product) => {
+    handleAddToCart(item, product)
+    removeItem(item.productId)
+  }
+
+  if (items.length === 0) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-16 text-center">
+        <motion.div {...fadeIn}>
+          <Heart className="size-16 text-muted-foreground mx-auto mb-4" />
+          <h2 className="font-serif text-2xl font-bold mb-2">Your Wishlist is Empty</h2>
+          <p className="text-muted-foreground mb-6">Save products you love and come back to them anytime.</p>
+          <Button onClick={() => setView({ view: 'products' })}>
+            Explore Products <ArrowRight className="size-4 ml-1" />
+          </Button>
+        </motion.div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+      <motion.div {...fadeIn}>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
+          <div>
+            <h1 className="font-serif text-3xl font-bold">My Wishlist</h1>
+            <p className="text-muted-foreground text-sm mt-1">{items.length} saved item{items.length !== 1 ? 's' : ''}</p>
+          </div>
+          <Button variant="outline" onClick={() => setView({ view: 'cart' })} className="gap-2">
+            <ShoppingCart className="size-4" /> View Cart
+          </Button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {items.map(item => {
+            const product = products.find(p => p.id === item.productId)
+            const price = product ? getProductWishlistPrice(product) : item.price
+            const outOfStock = product?.stock === 0
+
+            return (
+              <Card key={item.productId} className="overflow-hidden group">
+                <div
+                  className="relative h-44 cursor-pointer"
+                  onClick={() => product && setView({ view: 'product-detail', params: { id: product.id } })}
+                >
+                  {item.image ? (
+                    <img src={item.image} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                  ) : (
+                    <div className={`w-full h-full bg-gradient-to-br ${getGradientForCategory(product?.category.slug || 'morocco')} flex items-center justify-center`}>
+                      <span className="text-3xl font-bold text-white/30 font-serif">{getProductInitials(item.name)}</span>
+                    </div>
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" />
+                  {product && (
+                    <div className="absolute top-2 right-2" onClick={e => e.stopPropagation()}>
+                      <WishlistButton product={product} />
+                    </div>
+                  )}
+                  {product?.discount ? (
+                    <Badge className="absolute top-2 left-2 bg-primary text-gold border-0 text-[10px] font-bold">
+                      -{product.discount}%
+                    </Badge>
+                  ) : null}
+                </div>
+                <CardContent className="p-4">
+                  {product && (
+                    <Badge variant="secondary" className="text-[10px] mb-2">{product.category.name}</Badge>
+                  )}
+                  <h3 className="font-semibold mb-1 line-clamp-1">{item.name}</h3>
+                  <p className="text-primary font-bold mb-4">{formatPrice(price, selectedCountry)}</p>
+                  <div className="flex flex-col gap-2">
+                    <Button
+                      size="sm"
+                      className="w-full gap-2"
+                      onClick={() => handleMoveToCart(item, product)}
+                      disabled={outOfStock}
+                    >
+                      <ShoppingCart className="size-4" /> Move to Cart
+                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="flex-1 gap-2"
+                        onClick={() => handleAddToCart(item, product)}
+                        disabled={outOfStock}
+                      >
+                        <Plus className="size-4" /> Add to Cart
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => {
+                          removeItem(item.productId)
+                          toast({ title: 'Removed', description: `${item.name} removed from wishlist.` })
+                        }}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </div>
+                  </div>
+                  {outOfStock && (
+                    <p className="text-xs text-destructive mt-2">Currently out of stock</p>
+                  )}
+                </CardContent>
+              </Card>
+            )
+          })}
+        </div>
+      </motion.div>
+    </div>
+  )
+}
+
 // ─── Checkout View ───────────────────────────────────────────────────────────
 
 function CheckoutView() {
   const { items, totalPrice, clearCart } = useCartStore()
+  const { applied: appliedCoupon, clearApplied } = useCouponStore()
   const { setView, selectedCountry } = useAppStore()
   const { toast } = useToast()
   const [step, setStep] = useState<'info' | 'payment' | 'processing' | 'success' | 'failed'>('info')
@@ -2200,8 +2826,10 @@ function CheckoutView() {
   const [cardForm, setCardForm] = useState({ number: '', expiry: '', cvc: '', name: '' })
 
   const total = totalPrice()
+  const couponDiscount = appliedCoupon?.discountAmount ?? 0
   const shipping = total >= 200 ? 0 : 25
-  const grandTotal = total + shipping
+  const codFee = paymentMethod === 'cod' ? 10 : 0
+  const grandTotal = Math.max(0, total - couponDiscount + shipping + codFee)
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm(prev => ({ ...prev, [e.target.name]: e.target.value }))
@@ -2259,13 +2887,14 @@ function CheckoutView() {
           currency: getCountryByCode(selectedCountry).currency,
           country: selectedCountry,
           paymentMethod,
+          couponCode: appliedCoupon?.code,
         }),
       })
       const orderData = await orderRes.json()
 
       if (!orderRes.ok) {
-        toast({ title: 'Error', description: 'Failed to create order.', variant: 'destructive' })
-        setStep('info')
+        toast({ title: 'Error', description: orderData.error || 'Failed to create order.', variant: 'destructive' })
+        setStep('payment')
         setIsSubmitting(false)
         return
       }
@@ -2293,6 +2922,7 @@ function CheckoutView() {
         setTransactionId(paymentData.transactionId)
         setStep('success')
         clearCart()
+        clearApplied()
         toast({ title: 'Payment successful!', description: 'Your order has been placed.' })
       } else {
         setTransactionId(paymentData.transactionId || '')
@@ -2308,10 +2938,10 @@ function CheckoutView() {
 
   // Payment method configs
   const paymentMethods = [
-    { id: 'card', label: 'Credit / Debit Card', icon: CreditCard, desc: 'Visa, Mastercard', color: 'from-blue-500 to-blue-600' },
-    { id: 'mada', label: 'Mada', icon: Banknote, desc: 'Saudi debit cards', color: 'from-emerald-500 to-teal-500' },
-    { id: 'applepay', label: 'Apple Pay', icon: Smartphone, desc: 'Quick & secure', color: 'from-gray-700 to-gray-900' },
-    { id: 'cod', label: 'Cash on Delivery', icon: Wallet, desc: 'Pay when received', color: 'from-amber-500 to-orange-500' },
+    { id: 'card', label: 'Credit / Debit Card', icon: CreditCard, desc: 'Visa, Mastercard', color: 'from-emerald-800 to-green-900' },
+    { id: 'mada', label: 'Mada', icon: Banknote, desc: 'Saudi debit cards', color: 'from-green-800 to-teal-900' },
+    { id: 'applepay', label: 'Apple Pay', icon: Smartphone, desc: 'Quick & secure', color: 'from-emerald-950 to-green-950' },
+    { id: 'cod', label: 'Cash on Delivery', icon: Wallet, desc: 'Pay when received', color: 'from-emerald-800 to-green-900' },
   ]
 
   // ─── Success State ──────────────────────────────────────────────────────
@@ -2319,14 +2949,14 @@ function CheckoutView() {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-16 text-center">
         <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring', stiffness: 200 }}>
-          <div className="size-20 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center mx-auto mb-6">
-            <CheckCircle2 className="size-10 text-emerald-600" />
+          <div className="size-20 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-6">
+            <CheckCircle2 className="size-10 text-primary" />
           </div>
           <h2 className="font-serif text-3xl font-bold mb-4">Payment Successful!</h2>
           <p className="text-muted-foreground mb-2">Thank you for your purchase.</p>
           <p className="text-sm text-muted-foreground mb-1">Order ID: <span className="font-mono text-foreground">{orderId.slice(0, 12)}</span></p>
           <p className="text-sm text-muted-foreground mb-1">Transaction: <span className="font-mono text-foreground">{transactionId}</span></p>
-          <Badge className="mt-3 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" variant="secondary">
+          <Badge className="mt-3 bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary" variant="secondary">
             <CheckCircle2 className="size-3 mr-1" /> Payment Confirmed
           </Badge>
           <div className="mt-8 flex gap-4 justify-center">
@@ -2343,8 +2973,8 @@ function CheckoutView() {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-16 text-center">
         <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring', stiffness: 200 }}>
-          <div className="size-20 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center mx-auto mb-6">
-            <AlertCircle className="size-10 text-red-600" />
+          <div className="size-20 rounded-full bg-destructive/10 flex items-center justify-center mx-auto mb-6">
+            <AlertCircle className="size-10 text-destructive" />
           </div>
           <h2 className="font-serif text-3xl font-bold mb-4">Payment Failed</h2>
           <p className="text-muted-foreground mb-2">Your payment could not be processed.</p>
@@ -2404,7 +3034,7 @@ function CheckoutView() {
               <button
                 onClick={() => { if (s === 'info') setStep('info') }}
                 className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all ${
-                  step === s ? 'bg-primary text-primary-foreground' : s === 'info' && step === 'payment' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-secondary text-muted-foreground'
+                  step === s ? 'bg-primary text-primary-foreground' : s === 'info' && step === 'payment' ? 'bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary' : 'bg-secondary text-muted-foreground'
                 }`}
               >
                 {s === 'info' && step === 'payment' ? <Check className="size-4" /> : <span>{i + 1}</span>}
@@ -2436,7 +3066,13 @@ function CheckoutView() {
                   </div>
                   <div>
                     <Label htmlFor="phone">Phone Number</Label>
-                    <Input id="phone" name="phone" type="tel" placeholder="+966 5X XXX XXXX" value={form.phone} onChange={handleChange} className="mt-1.5" />
+                    <PhoneInput
+                      id="phone"
+                      value={form.phone}
+                      onChange={(phone) => setForm((prev) => ({ ...prev, phone }))}
+                      defaultCountryCode={selectedCountry === 'EU' ? 'SA' : selectedCountry}
+                      className="mt-1.5"
+                    />
                   </div>
                 </CardContent>
                 <CardFooter>
@@ -2451,11 +3087,11 @@ function CheckoutView() {
             {step === 'payment' && (
               <div className="space-y-6">
                 {/* Customer Info Summary */}
-                <Card className="border-emerald-200 dark:border-emerald-800">
+                <Card className="border-primary/20 dark:border-primary/30">
                   <CardContent className="p-4 flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="size-8 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
-                        <Check className="size-4 text-emerald-600" />
+                      <div className="size-8 rounded-full bg-primary/10 flex items-center justify-center">
+                        <Check className="size-4 text-primary" />
                       </div>
                       <div>
                         <p className="font-medium text-sm">{form.name}</p>
@@ -2552,10 +3188,10 @@ function CheckoutView() {
 
                 {/* COD notice */}
                 {paymentMethod === 'cod' && (
-                  <Card className="border-amber-300 dark:border-amber-800">
+                  <Card className="border-emerald-300 dark:border-emerald-800">
                     <CardContent className="p-6">
                       <div className="flex items-start gap-4">
-                        <div className="size-12 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center text-white shrink-0">
+                        <div className="size-12 rounded-xl bg-gradient-to-br from-emerald-800 to-green-900 flex items-center justify-center text-white shrink-0">
                           <Wallet className="size-6" />
                         </div>
                         <div>
@@ -2594,6 +3230,7 @@ function CheckoutView() {
                 <CardTitle className="font-serif">Order Summary</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
+                <CouponInput subtotal={total} countryCode={selectedCountry} />
                 <ScrollArea className="max-h-48">
                   {items.map(item => (
                     <div key={item.productId} className="flex justify-between text-sm py-1.5">
@@ -2607,23 +3244,31 @@ function CheckoutView() {
                   <span className="text-muted-foreground">Subtotal</span>
                   <span>{formatPrice(total, selectedCountry)}</span>
                 </div>
+                {couponDiscount > 0 && (
+                  <div className="flex justify-between text-sm text-primary">
+                    <span className="flex items-center gap-1">
+                      <Tag className="size-3.5" /> Coupon ({appliedCoupon?.code})
+                    </span>
+                    <span>-{formatPrice(couponDiscount, selectedCountry)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Shipping</span>
-                  <span>{shipping === 0 ? <span className="text-emerald-600">Free</span> : formatPrice(shipping, selectedCountry)}</span>
+                  <span>{shipping === 0 ? <span className="text-primary">Free</span> : formatPrice(shipping, selectedCountry)}</span>
                 </div>
                 {paymentMethod === 'cod' && (
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">COD Fee</span>
-                    <span>{formatPrice(10, selectedCountry)}</span>
+                    <span>{formatPrice(codFee, selectedCountry)}</span>
                   </div>
                 )}
                 <Separator />
                 <div className="flex justify-between font-bold text-lg">
                   <span>Total</span>
-                  <span className="text-primary">{formatPrice(grandTotal + (paymentMethod === 'cod' ? 10 : 0), selectedCountry)}</span>
+                  <span className="text-primary">{formatPrice(grandTotal, selectedCountry)}</span>
                 </div>
                 <div className="flex items-center gap-2 text-xs text-muted-foreground mt-2">
-                  <ShieldCheck className="size-3.5 text-emerald-600" />
+                  <ShieldCheck className="size-3.5 text-primary" />
                   <span>Secure checkout • 256-bit SSL</span>
                 </div>
               </CardContent>
@@ -2652,10 +3297,10 @@ function AdminDashboard() {
   }, [])
 
   const statCards = [
-    { title: 'Total Products', value: stats?.totalProducts ?? 0, icon: Package, color: 'from-amber-500 to-orange-500' },
-    { title: 'Total Orders', value: stats?.totalOrders ?? 0, icon: ClipboardList, color: 'from-emerald-500 to-teal-500' },
-    { title: 'Total Revenue', value: stats?.totalRevenue ?? 0, icon: DollarSign, color: 'from-primary to-amber-500', isPrice: true },
-    { title: 'Paid Revenue', value: stats?.paidRevenue ?? 0, icon: CircleDollarSign, color: 'from-emerald-600 to-green-500', isPrice: true },
+    { title: 'Total Products', value: stats?.totalProducts ?? 0, icon: Package, color: 'from-emerald-800 to-green-900' },
+    { title: 'Total Orders', value: stats?.totalOrders ?? 0, icon: ClipboardList, color: 'from-green-800 to-emerald-700' },
+    { title: 'Total Revenue', value: stats?.totalRevenue ?? 0, icon: DollarSign, color: 'from-primary to-emerald-400', isPrice: true },
+    { title: 'Paid Revenue', value: stats?.paidRevenue ?? 0, icon: CircleDollarSign, color: 'from-emerald-700 to-green-800', isPrice: true },
   ]
 
   const chartData = useMemo(() => {
@@ -2666,21 +3311,28 @@ function AdminDashboard() {
     }))
   }, [stats])
 
-  const statusColors: Record<string, string> = {
-    pending: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
-    processing: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400',
-    confirmed: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-    shipped: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
-    delivered: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
-    cancelled: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-  }
+  const engagementChartData = useMemo(() => {
+    if (!stats?.engagement?.dailyEngagement) return []
+    return stats.engagement.dailyEngagement.map(d => ({
+      day: d.day ? new Date(d.day).toLocaleDateString('en', { month: 'short', day: 'numeric' }) : 'N/A',
+      pageViews: d.pageViews,
+      uniqueVisitors: d.uniqueVisitors,
+    }))
+  }, [stats])
 
-  const paymentStatusColors: Record<string, string> = {
-    pending: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
-    paid: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
-    failed: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-    refunded: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
-  }
+  const topPagesChartData = useMemo(() => {
+    if (!stats?.engagement?.topPages) return []
+    return stats.engagement.topPages.map(p => ({
+      page: PAGE_LABELS[p.page] || p.page,
+      views: p.views,
+    }))
+  }, [stats])
+
+  const engagement = stats?.engagement
+
+  const statusColors = royalOrderStatusColors
+
+  const paymentStatusColors = royalPaymentStatusColors
 
   const paymentMethodLabels: Record<string, string> = {
     card: '💳 Credit Card',
@@ -2754,6 +3406,168 @@ function AdminDashboard() {
               ))}
             </div>
 
+            {/* Customer Engagement */}
+            {engagement && (
+              <>
+                <div className="mb-6">
+                  <h2 className="font-serif text-2xl font-bold flex items-center gap-2">
+                    <Users className="size-6 text-primary" /> Customer Engagement
+                  </h2>
+                  <p className="text-muted-foreground text-sm mt-1">Website activity over the last 30 days</p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                  {[
+                    { title: 'Unique Visitors', value: engagement.uniqueVisitors30d, icon: Users, color: 'from-emerald-800 to-green-900' },
+                    { title: 'Page Views', value: engagement.pageViews30d, icon: Eye, color: 'from-green-800 to-emerald-700' },
+                    { title: 'New Customers', value: engagement.newCustomers30d, icon: UserPlus, color: 'from-teal-800 to-emerald-800' },
+                    { title: 'Conversion Rate', value: `${engagement.conversionRate}%`, icon: TrendingUp, color: 'from-primary to-emerald-400', isText: true },
+                  ].map(card => (
+                    <motion.div key={card.title} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
+                      <Card className="overflow-hidden">
+                        <CardContent className="p-0">
+                          <div className={`bg-gradient-to-r ${card.color} p-4 text-white`}>
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="text-white/80 text-sm">{card.title}</p>
+                                <p className="text-2xl font-bold mt-1">
+                                  {card.isText ? card.value : Number(card.value).toLocaleString()}
+                                </p>
+                              </div>
+                              <card.icon className="size-8 text-white/40" />
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </motion.div>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-8">
+                  <Card className="lg:col-span-2">
+                    <CardHeader>
+                      <CardTitle className="font-serif flex items-center gap-2 text-lg">
+                        <Eye className="size-5 text-primary" /> Daily Website Activity
+                      </CardTitle>
+                      <CardDescription>Page views and unique visitors — last 14 days</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="h-72">
+                        {engagementChartData.length > 0 ? (
+                          <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart data={engagementChartData}>
+                              <defs>
+                                <linearGradient id="viewsGradient" x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="5%" stopColor="oklch(0.55 0.13 155)" stopOpacity={0.35} />
+                                  <stop offset="95%" stopColor="oklch(0.55 0.13 155)" stopOpacity={0} />
+                                </linearGradient>
+                                <linearGradient id="visitorsGradient" x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="5%" stopColor="oklch(0.72 0.11 75)" stopOpacity={0.35} />
+                                  <stop offset="95%" stopColor="oklch(0.72 0.11 75)" stopOpacity={0} />
+                                </linearGradient>
+                              </defs>
+                              <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                              <XAxis dataKey="day" className="text-xs" tick={{ fill: 'oklch(0.5 0.02 60)' }} />
+                              <YAxis className="text-xs" tick={{ fill: 'oklch(0.5 0.02 60)' }} allowDecimals={false} />
+                              <RechartsTooltip
+                                contentStyle={{ backgroundColor: 'oklch(1 0 0)', border: '1px solid oklch(0.92 0.01 80)', borderRadius: '8px' }}
+                              />
+                              <Legend />
+                              <Area type="monotone" dataKey="pageViews" name="Page Views" stroke="oklch(0.55 0.13 155)" fill="url(#viewsGradient)" strokeWidth={2} />
+                              <Area type="monotone" dataKey="uniqueVisitors" name="Unique Visitors" stroke="oklch(0.72 0.11 75)" fill="url(#visitorsGradient)" strokeWidth={2} />
+                            </AreaChart>
+                          </ResponsiveContainer>
+                        ) : (
+                          <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
+                            No engagement data yet — browse the site to start collecting activity.
+                          </div>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="font-serif flex items-center gap-2 text-lg">
+                        <BarChart3 className="size-5 text-primary" /> Engagement Funnel
+                      </CardTitle>
+                      <CardDescription>Customer journey (30 days)</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {engagement.funnel.map((step, index) => {
+                        const maxCount = engagement.funnel[0]?.count || 1
+                        const width = Math.max(8, Math.round((step.count / maxCount) * 100))
+                        return (
+                          <div key={step.step}>
+                            <div className="flex items-center justify-between text-sm mb-1.5">
+                              <span className="font-medium">{step.step}</span>
+                              <span className="text-muted-foreground">{step.count.toLocaleString()}</span>
+                            </div>
+                            <div className="h-2.5 rounded-full bg-secondary overflow-hidden">
+                              <div
+                                className={`h-full rounded-full bg-gradient-to-r ${
+                                  index === 0 ? 'from-emerald-700 to-green-800' :
+                                  index === 1 ? 'from-green-700 to-emerald-600' :
+                                  index === 2 ? 'from-teal-700 to-emerald-700' :
+                                  'from-primary to-emerald-400'
+                                }`}
+                                style={{ width: `${width}%` }}
+                              />
+                            </div>
+                          </div>
+                        )
+                      })}
+                      <Separator />
+                      <div className="grid grid-cols-2 gap-3 text-center">
+                        <div className="p-3 rounded-lg bg-secondary/50">
+                          <p className="text-lg font-bold">{engagement.returningVisitors}</p>
+                          <p className="text-[11px] text-muted-foreground">Returning Visitors</p>
+                        </div>
+                        <div className="p-3 rounded-lg bg-secondary/50">
+                          <p className="text-lg font-bold">{engagement.signUps30d}</p>
+                          <p className="text-[11px] text-muted-foreground">New Sign-ups</p>
+                        </div>
+                        <div className="p-3 rounded-lg bg-secondary/50">
+                          <p className="text-lg font-bold">{engagement.addToCart30d}</p>
+                          <p className="text-[11px] text-muted-foreground">Add to Cart</p>
+                        </div>
+                        <div className="p-3 rounded-lg bg-secondary/50">
+                          <p className="text-lg font-bold">{engagement.totalCustomers}</p>
+                          <p className="text-[11px] text-muted-foreground">Total Customers</p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {topPagesChartData.length > 0 && (
+                  <Card className="mb-8">
+                    <CardHeader>
+                      <CardTitle className="font-serif flex items-center gap-2">
+                        <Globe className="size-5 text-primary" /> Most Visited Pages
+                      </CardTitle>
+                      <CardDescription>Where customers spend their time</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={topPagesChartData} layout="vertical" margin={{ left: 20, right: 20 }}>
+                            <CartesianGrid strokeDasharray="3 3" className="stroke-border" horizontal={false} />
+                            <XAxis type="number" tick={{ fill: 'oklch(0.5 0.02 60)' }} allowDecimals={false} />
+                            <YAxis type="category" dataKey="page" width={100} tick={{ fill: 'oklch(0.5 0.02 60)', fontSize: 12 }} />
+                            <RechartsTooltip
+                              contentStyle={{ backgroundColor: 'oklch(1 0 0)', border: '1px solid oklch(0.92 0.01 80)', borderRadius: '8px' }}
+                            />
+                            <Bar dataKey="views" name="Views" fill="oklch(0.55 0.13 155)" radius={[0, 4, 4, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </>
+            )}
+
             {/* Payment Status Overview */}
             {stats?.paymentStats && stats.paymentStats.length > 0 && (
               <Card className="mb-8">
@@ -2817,8 +3631,8 @@ function AdminDashboard() {
                       <AreaChart data={chartData}>
                         <defs>
                           <linearGradient id="goldGradient" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="oklch(0.75 0.16 75)" stopOpacity={0.3} />
-                            <stop offset="95%" stopColor="oklch(0.75 0.16 75)" stopOpacity={0} />
+                            <stop offset="5%" stopColor="oklch(0.55 0.13 155)" stopOpacity={0.3} />
+                            <stop offset="95%" stopColor="oklch(0.55 0.13 155)" stopOpacity={0} />
                           </linearGradient>
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
@@ -2828,7 +3642,7 @@ function AdminDashboard() {
                           contentStyle={{ backgroundColor: 'oklch(1 0 0)', border: '1px solid oklch(0.92 0.01 80)', borderRadius: '8px' }}
                           formatter={(value: number) => [formatPrice(value, selectedCountry), 'Revenue']}
                         />
-                        <Area type="monotone" dataKey="revenue" stroke="oklch(0.75 0.16 75)" fill="url(#goldGradient)" strokeWidth={2} />
+                        <Area type="monotone" dataKey="revenue" stroke="oklch(0.55 0.13 155)" fill="url(#goldGradient)" strokeWidth={2} />
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
@@ -3435,7 +4249,7 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
                       return (
                         <TableRow key={p.id} className="group">
                           <TableCell>
-                            <div className="size-10 rounded-md overflow-hidden bg-gradient-to-br from-primary/10 to-amber-500/10 shrink-0">
+                            <div className="size-10 rounded-md overflow-hidden bg-gradient-to-br from-primary/10 to-emerald-500/10 shrink-0">
                               {p.image ? (
                                 <img src={p.image} alt={p.name} className="w-full h-full object-cover" />
                               ) : (
@@ -3456,7 +4270,7 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
                           <TableCell><Badge variant="secondary" className="text-xs">{p.category.name}</Badge></TableCell>
                           <TableCell className="font-semibold">{formatPrice(p.price, selectedCountry)}</TableCell>
                           <TableCell>
-                            <span className={`text-sm ${p.stock < 10 ? 'text-destructive font-semibold' : p.stock < 30 ? 'text-amber-600 font-medium' : ''}`}>
+                            <span className={`text-sm ${p.stock < 10 ? 'text-destructive font-semibold' : p.stock < 30 ? 'text-gold font-medium' : ''}`}>
                               {p.stock}
                             </span>
                           </TableCell>
@@ -3487,7 +4301,7 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
                           <TableCell>
                             <button onClick={() => toggleFeatured(p)} className="focus:outline-none" title={`Click to ${p.featured ? 'unfeature' : 'feature'}`}>
                               {p.featured ? (
-                                <Star className="size-4 text-amber-500 fill-amber-500" />
+                                <Star className="size-4 text-gold fill-gold" />
                               ) : (
                                 <Star className="size-4 text-muted-foreground/40" />
                               )}
@@ -3570,7 +4384,7 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
             {selectedProduct && (
               <div className="py-4">
                 <div className="flex items-center gap-4 p-4 rounded-lg border bg-destructive/5">
-                  <div className="size-14 rounded-md overflow-hidden bg-gradient-to-br from-primary/10 to-amber-500/10 shrink-0">
+                  <div className="size-14 rounded-md overflow-hidden bg-gradient-to-br from-primary/10 to-emerald-500/10 shrink-0">
                     {selectedProduct.image ? (
                       <img src={selectedProduct.image} alt={selectedProduct.name} className="w-full h-full object-cover" />
                     ) : (
@@ -3620,7 +4434,7 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
                     </div>
                   )}
                   <div className="flex gap-4">
-                    <div className="size-28 rounded-xl overflow-hidden bg-gradient-to-br from-primary/10 to-amber-500/10 shrink-0">
+                    <div className="size-28 rounded-xl overflow-hidden bg-gradient-to-br from-primary/10 to-emerald-500/10 shrink-0">
                       {selectedProduct.image ? (
                         <img src={selectedProduct.image} alt={selectedProduct.name} className="w-full h-full object-cover" />
                       ) : (
@@ -3635,8 +4449,8 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
                       <div className="flex items-center gap-2 mt-2">
                         <Badge variant={selectedProduct.status === 'active' ? 'default' : 'secondary'} className="text-xs">{selectedProduct.status}</Badge>
                         {selectedProduct.featured && (
-                          <Badge className="text-xs bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border-0">
-                            <Star className="size-3 mr-1 fill-amber-500 text-amber-500" /> Featured
+                          <Badge className="text-xs bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary border-0">
+                            <Star className="size-3 mr-1 fill-gold text-gold" /> Featured
                           </Badge>
                         )}
                       </div>
@@ -3660,7 +4474,7 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
                     <Card>
                       <CardContent className="p-3 text-center">
                         <p className="text-xs text-muted-foreground">Stock</p>
-                        <p className={`font-bold ${selectedProduct.stock < 10 ? 'text-destructive' : selectedProduct.stock < 30 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                        <p className={`font-bold ${selectedProduct.stock < 10 ? 'text-destructive' : selectedProduct.stock < 30 ? 'text-gold' : 'text-primary'}`}>
                           {selectedProduct.stock} units
                         </p>
                         <p className="text-[10px] text-muted-foreground">{selectedProduct.stock < 10 ? 'Low stock!' : 'In stock'}</p>
@@ -3767,21 +4581,9 @@ function AdminOrders() {
     }
   }
 
-  const statusColors: Record<string, string> = {
-    pending: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
-    confirmed: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-    processing: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400',
-    shipped: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
-    delivered: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
-    cancelled: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-  }
+  const statusColors = royalOrderStatusColors
 
-  const paymentStatusColors: Record<string, string> = {
-    pending: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
-    paid: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
-    failed: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-    refunded: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
-  }
+  const paymentStatusColors = royalPaymentStatusColors
 
   const paymentMethodLabels: Record<string, { label: string; icon: React.ReactNode }> = {
     card: { label: 'Credit Card', icon: <CreditCard className="size-3.5" /> },
@@ -3860,6 +4662,11 @@ function AdminOrders() {
                             {paymentMethodLabels[order.paymentMethod].label}
                           </span>
                         )}
+                        {order.couponCode && (
+                          <Badge variant="secondary" className="text-[10px] bg-gold/15 text-gold border-gold/25">
+                            <Tag className="size-3 mr-1" /> {order.couponCode}
+                          </Badge>
+                        )}
                       </div>
                       <div className="flex items-center gap-4 mt-2 text-sm">
                         <span className="font-medium">{order.customerName}</span>
@@ -3905,6 +4712,14 @@ function AdminOrders() {
                                     {order.paymentStatus}
                                   </Badge>
                                 </div>
+                                {order.couponCode && (
+                                  <div className="flex justify-between">
+                                    <span className="text-muted-foreground">Coupon</span>
+                                    <span className="text-primary font-medium">
+                                      {order.couponCode} (-{formatPrice(order.discountAmount || 0, selectedCountry)})
+                                    </span>
+                                  </div>
+                                )}
                                 {order.transactionId && (
                                   <div className="flex justify-between">
                                     <span className="text-muted-foreground">Transaction</span>
@@ -3968,7 +4783,7 @@ function AdminOrders() {
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  className="h-7 text-xs text-emerald-600 hover:text-emerald-700"
+                                  className="h-7 text-xs text-primary hover:text-primary/80"
                                   onClick={() => updatePaymentStatus(order.id, 'paid')}
                                 >
                                   <Check className="size-3 mr-1" /> Mark Paid
@@ -3978,7 +4793,7 @@ function AdminOrders() {
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  className="h-7 text-xs text-purple-600 hover:text-purple-700"
+                                  className="h-7 text-xs text-primary hover:text-primary/80"
                                   onClick={() => handleRefund(order.id)}
                                 >
                                   <RotateCcw className="size-3 mr-1" /> Refund
@@ -4011,7 +4826,9 @@ function SignInView() {
   const { signIn } = useAuthStore()
   const { toast } = useToast()
   const [loginType, setLoginType] = useState<'customer' | 'admin'>('customer')
+  const [customerAuthMethod, setCustomerAuthMethod] = useState<'email' | 'phone'>('email')
   const [email, setEmail] = useState('')
+  const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [rememberMe, setRememberMe] = useState(false)
@@ -4023,17 +4840,34 @@ function SignInView() {
     setError('')
     setLoading(true)
 
-    if (!email || !password) {
-      setError('Please fill in all fields')
-      setLoading(false)
-      return
+    if (loginType === 'admin') {
+      if (!email || !password) {
+        setError('Please fill in all fields')
+        setLoading(false)
+        return
+      }
+    } else if (customerAuthMethod === 'email') {
+      if (!email || !password) {
+        setError('Please fill in all fields')
+        setLoading(false)
+        return
+      }
+    } else {
+      if (!phone || !password) {
+        setError('Please fill in all fields')
+        setLoading(false)
+        return
+      }
     }
 
-    const result = await signIn(email, password)
+    const result = loginType === 'admin' || customerAuthMethod === 'email'
+      ? await signIn(email, password, 'email')
+      : await signIn(phone, password, 'phone')
     setLoading(false)
 
     if (result.success) {
-      const isAdmin = email === 'admin@alifaain.com'
+      const signedInUser = useAuthStore.getState().user
+      const isAdmin = signedInUser?.role === 'admin'
       toast({
         title: isAdmin ? 'Welcome, Admin!' : 'Welcome back!',
         description: isAdmin ? 'You have been signed in to the admin dashboard.' : 'You have been signed in successfully.',
@@ -4046,14 +4880,18 @@ function SignInView() {
 
   const switchToAdmin = () => {
     setLoginType('admin')
+    setCustomerAuthMethod('email')
     setEmail('admin@alifaain.com')
+    setPhone('')
     setPassword('')
     setError('')
   }
 
   const switchToCustomer = () => {
     setLoginType('customer')
+    setCustomerAuthMethod('email')
     setEmail('')
+    setPhone('')
     setPassword('')
     setError('')
   }
@@ -4061,10 +4899,10 @@ function SignInView() {
   // Dynamic left panel colors based on login type
   const leftGradient = loginType === 'admin'
     ? 'from-slate-800 via-slate-700 to-slate-900 dark:from-slate-900 dark:via-slate-800 dark:to-slate-950'
-    : 'from-amber-600 via-orange-500 to-yellow-500'
+    : 'from-emerald-950 via-green-800 to-teal-900'
   const mobileGradient = loginType === 'admin'
     ? 'from-slate-800 via-slate-700 to-slate-900 dark:from-slate-900 dark:via-slate-800 dark:to-slate-950'
-    : 'from-amber-600 via-orange-500 to-yellow-500'
+    : 'from-emerald-950 via-green-800 to-teal-900'
 
   return (
     <div className="min-h-[70vh] flex items-center justify-center py-8 sm:py-12">
@@ -4184,34 +5022,6 @@ function SignInView() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="pt-4">
-                {/* Login Type Tabs */}
-                <div className="flex rounded-lg bg-muted p-1 mb-6">
-                  <button
-                    type="button"
-                    onClick={switchToCustomer}
-                    className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-md text-sm font-medium transition-all ${
-                      loginType === 'customer'
-                        ? 'bg-card text-foreground shadow-sm'
-                        : 'text-muted-foreground hover:text-foreground'
-                    }`}
-                  >
-                    <UserCircle className="size-4" />
-                    Customer
-                  </button>
-                  <button
-                    type="button"
-                    onClick={switchToAdmin}
-                    className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-md text-sm font-medium transition-all ${
-                      loginType === 'admin'
-                        ? 'bg-card text-foreground shadow-sm'
-                        : 'text-muted-foreground hover:text-foreground'
-                    }`}
-                  >
-                    <ShieldCheck className="size-4" />
-                    Admin
-                  </button>
-                </div>
-
                 <form onSubmit={handleSubmit} className="space-y-4">
                   <AnimatePresence>
                     {error && (
@@ -4227,21 +5037,65 @@ function SignInView() {
                     )}
                   </AnimatePresence>
 
+                  {loginType === 'customer' && (
+                    <div className="grid grid-cols-2 gap-2 p-1 rounded-lg bg-secondary/60">
+                      <button
+                        type="button"
+                        onClick={() => { setCustomerAuthMethod('email'); setPhone(''); setError('') }}
+                        className={`flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                          customerAuthMethod === 'email'
+                            ? 'bg-background text-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        <Mail className="size-4" />
+                        Email
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setCustomerAuthMethod('phone'); setEmail(''); setError('') }}
+                        className={`flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                          customerAuthMethod === 'phone'
+                            ? 'bg-background text-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        <Phone className="size-4" />
+                        Mobile
+                      </button>
+                    </div>
+                  )}
+
                   <div className="space-y-2">
-                    <Label htmlFor="email">
-                      {loginType === 'admin' ? 'Admin Email' : 'Email Address'}
+                    <Label htmlFor={loginType === 'admin' || customerAuthMethod === 'email' ? 'email' : 'phone'}>
+                      {loginType === 'admin'
+                        ? 'Admin Email'
+                        : customerAuthMethod === 'email'
+                          ? 'Email Address'
+                          : 'Mobile Number'}
                     </Label>
                     <div className="relative">
-                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-                      <Input
-                        id="email"
-                        type="email"
-                        placeholder={loginType === 'admin' ? 'admin@alifaain.com' : 'you@example.com'}
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        className="pl-9"
-                        autoComplete="email"
-                      />
+                      {loginType === 'admin' || customerAuthMethod === 'email' ? (
+                        <>
+                          <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+                          <Input
+                            id="email"
+                            type="email"
+                            placeholder={loginType === 'admin' ? 'admin@alifaain.com' : 'you@example.com'}
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            className="pl-9"
+                            autoComplete="email"
+                          />
+                        </>
+                      ) : (
+                        <PhoneInput
+                          id="phone"
+                          value={phone}
+                          onChange={setPhone}
+                          autoComplete="tel"
+                        />
+                      )}
                     </div>
                   </div>
 
@@ -4308,14 +5162,34 @@ function SignInView() {
                       initial={{ opacity: 0, y: 5 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.3 }}
-                      className="rounded-lg border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-900/20 p-3"
+                      className="rounded-lg border border-primary/20 dark:border-primary/30 bg-primary/5 dark:bg-primary/10 p-3"
                     >
                       <div className="flex items-start gap-2">
-                        <AlertCircle className="size-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                        <AlertCircle className="size-4 text-primary shrink-0 mt-0.5" />
                         <div>
-                          <p className="text-xs font-medium text-amber-800 dark:text-amber-300">Demo Credentials</p>
-                          <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-0.5 font-mono">
+                          <p className="text-xs font-medium text-primary">Demo Credentials</p>
+                          <p className="text-[11px] text-muted-foreground mt-0.5 font-mono">
                             admin@alifaain.com / admin123
+                          </p>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {/* Customer demo credentials hint */}
+                  {loginType === 'customer' && customerAuthMethod === 'phone' && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.3 }}
+                      className="rounded-lg border border-primary/20 dark:border-primary/30 bg-primary/5 dark:bg-primary/10 p-3"
+                    >
+                      <div className="flex items-start gap-2">
+                        <AlertCircle className="size-4 text-primary shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-xs font-medium text-primary">Demo Mobile Login</p>
+                          <p className="text-[11px] text-muted-foreground mt-0.5 font-mono">
+                            +966501234567 / customer123
                           </p>
                         </div>
                       </div>
@@ -4323,21 +5197,44 @@ function SignInView() {
                   )}
                 </form>
               </CardContent>
-              <CardFooter className="justify-center border-t pt-6">
+              <CardFooter className="flex flex-col gap-3 border-t pt-6">
                 {loginType === 'customer' ? (
-                  <p className="text-sm text-muted-foreground">
-                    Don&apos;t have an account?{' '}
-                    <button
-                      onClick={() => setView({ view: 'signup' })}
-                      className="text-primary font-semibold hover:underline"
-                    >
-                      Create one
-                    </button>
-                  </p>
+                  <>
+                    <p className="text-sm text-muted-foreground text-center">
+                      Don&apos;t have an account?{' '}
+                      <button
+                        type="button"
+                        onClick={() => setView({ view: 'signup' })}
+                        className="text-primary font-semibold hover:underline"
+                      >
+                        Create one
+                      </button>
+                    </p>
+                    <p className="text-xs text-muted-foreground text-center">
+                      Admin?{' '}
+                      <button
+                        type="button"
+                        onClick={switchToAdmin}
+                        className="text-primary font-medium hover:underline inline-flex items-center gap-1"
+                      >
+                        <ShieldCheck className="size-3.5" />
+                        Sign in to admin panel
+                      </button>
+                    </p>
+                  </>
                 ) : (
-                  <p className="text-xs text-muted-foreground">
-                    Admin access is restricted to authorized personnel only.
-                  </p>
+                  <>
+                    <p className="text-xs text-muted-foreground text-center">
+                      Admin access is restricted to authorized personnel only.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={switchToCustomer}
+                      className="text-sm text-primary font-medium hover:underline"
+                    >
+                      ← Back to customer sign in
+                    </button>
+                  </>
                 )}
               </CardFooter>
             </Card>
@@ -4356,6 +5253,7 @@ function SignUpView() {
   const { toast } = useToast()
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
+  const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -4368,16 +5266,17 @@ function SignUpView() {
   // Real-time validation
   const nameError = name.length > 0 && name.length < 2 ? 'Name must be at least 2 characters' : ''
   const emailError = email.length > 0 && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? 'Please enter a valid email' : ''
+  const phoneError = phone.length > 0 && !isValidPhone(phone) ? 'Please enter a valid mobile number' : ''
 
   // Password strength
   const getPasswordStrength = (pwd: string): { label: string; color: string; width: string } => {
     if (pwd.length === 0) return { label: '', color: '', width: '0%' }
-    if (pwd.length < 6) return { label: 'Weak', color: 'bg-red-500', width: '33%' }
-    if (pwd.length <= 8) return { label: 'Medium', color: 'bg-yellow-500', width: '66%' }
+    if (pwd.length < 6) return { label: 'Weak', color: 'bg-destructive', width: '33%' }
+    if (pwd.length <= 8) return { label: 'Medium', color: 'bg-gold', width: '66%' }
     const hasMixed = /[a-z]/.test(pwd) && /[A-Z]/.test(pwd)
     const hasNumbers = /\d/.test(pwd)
-    if (hasMixed && hasNumbers) return { label: 'Strong', color: 'bg-emerald-500', width: '100%' }
-    return { label: 'Medium', color: 'bg-yellow-500', width: '66%' }
+    if (hasMixed && hasNumbers) return { label: 'Strong', color: 'bg-primary', width: '100%' }
+    return { label: 'Medium', color: 'bg-gold', width: '66%' }
   }
 
   const passwordStrength = getPasswordStrength(password)
@@ -4403,6 +5302,11 @@ function SignUpView() {
       return
     }
 
+    if (phone.trim() && phoneError) {
+      setError('Please enter a valid mobile number')
+      return
+    }
+
     if (password.length < 6) {
       setError('Password must be at least 6 characters')
       return
@@ -4420,7 +5324,7 @@ function SignUpView() {
 
     setLoading(true)
 
-    const result = await signUp(name, email, password)
+    const result = await signUp(name, email, password, phone.trim() || undefined)
     setLoading(false)
 
     if (result.success) {
@@ -4447,9 +5351,9 @@ function SignUpView() {
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
             transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
-            className="size-20 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center mx-auto mb-6"
+            className="size-20 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-6"
           >
-            <Check className="size-10 text-emerald-600" />
+            <Check className="size-10 text-primary" />
           </motion.div>
           <h2 className="font-serif text-2xl font-bold mb-2">Account Created!</h2>
           <p className="text-muted-foreground mb-4">Welcome to Alifaain. Redirecting you now...</p>
@@ -4467,7 +5371,7 @@ function SignUpView() {
           initial={{ opacity: 0, x: -30 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.5 }}
-          className="hidden lg:flex lg:w-5/12 relative bg-gradient-to-br from-orange-500 via-amber-500 to-yellow-400 rounded-l-2xl overflow-hidden items-center justify-center p-10"
+          className="hidden lg:flex lg:w-5/12 relative bg-gradient-to-br from-emerald-950 via-green-800 to-teal-900 rounded-l-2xl overflow-hidden items-center justify-center p-10"
         >
           <div className="absolute inset-0 bg-black/10" />
           <div className="absolute top-10 right-10 size-24 bg-white/10 rounded-full blur-xl animate-float" />
@@ -4513,7 +5417,7 @@ function SignUpView() {
           <div className="gradient-border rounded-2xl lg:rounded-l-none">
             <Card className="border-0 shadow-xl">
               {/* Mobile Header */}
-              <div className="lg:hidden relative bg-gradient-to-r from-orange-500 via-amber-500 to-yellow-400 p-6 rounded-t-xl">
+              <div className="lg:hidden relative bg-gradient-to-r from-emerald-950 via-green-800 to-teal-900 p-6 rounded-t-xl">
                 <div className="absolute inset-0 bg-black/10 rounded-t-xl" />
                 <div className="relative z-10 flex items-center gap-4">
                   <motion.div
@@ -4597,6 +5501,24 @@ function SignUpView() {
                   </div>
 
                   <div className="space-y-2">
+                    <Label htmlFor="signup-phone">Mobile Number <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                    <PhoneInput
+                      id="signup-phone"
+                      value={phone}
+                      onChange={setPhone}
+                      error={!!phoneError}
+                      autoComplete="tel"
+                    />
+                    {phoneError ? (
+                      <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-xs text-destructive flex items-center gap-1">
+                        <AlertCircle className="size-3" /> {phoneError}
+                      </motion.p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">Add your mobile number to sign in with phone later</p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
                     <Label htmlFor="signup-password">Password</Label>
                     <div className="relative">
                       <Lock className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
@@ -4629,8 +5551,8 @@ function SignUpView() {
                           />
                         </div>
                         <p className={`text-xs font-medium ${
-                          passwordStrength.label === 'Weak' ? 'text-red-500' :
-                          passwordStrength.label === 'Medium' ? 'text-yellow-500' : 'text-emerald-500'
+                          passwordStrength.label === 'Weak' ? 'text-destructive' :
+                          passwordStrength.label === 'Medium' ? 'text-gold' : 'text-primary'
                         }`}>
                           {passwordStrength.label}
                         </p>
@@ -4660,7 +5582,7 @@ function SignUpView() {
                       </button>
                     </div>
                     {passwordsMatch && (
-                      <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-1 text-xs text-emerald-600">
+                      <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-1 text-xs text-primary">
                         <Check className="size-3" /> Passwords match
                       </motion.p>
                     )}
@@ -4730,6 +5652,7 @@ function ProfileView() {
   const [orderCount, setOrderCount] = useState(0)
   const [editName, setEditName] = useState(() => user?.name || '')
   const [editEmail, setEditEmail] = useState(() => user?.email || '')
+  const [editPhone, setEditPhone] = useState(() => user?.phone || '')
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmNewPassword, setConfirmNewPassword] = useState('')
@@ -4743,8 +5666,11 @@ function ProfileView() {
         fetch('/api/auth/profile').then(r => r.json()).catch(() => null),
         fetch('/api/user/orders').then(r => r.json()).catch(() => []),
       ]).then(([profileData, ordersData]) => {
-        if (profileData?.user?._count?.orders !== undefined) {
-          setOrderCount(profileData.user._count.orders)
+        if (profileData?.user) {
+          if (profileData.user._count?.orders !== undefined) {
+            setOrderCount(profileData.user._count.orders)
+          }
+          setEditPhone(profileData.user.phone || '')
         }
         if (ordersData?.orders && Array.isArray(ordersData.orders)) {
           setOrders(ordersData.orders)
@@ -4778,16 +5704,28 @@ function ProfileView() {
   }
 
   const handleSaveProfile = async () => {
+    if (editPhone.trim() && !isValidPhone(editPhone)) {
+      toast({ title: 'Error', description: 'Please enter a valid mobile number', variant: 'destructive' })
+      return
+    }
+
     setSavingProfile(true)
     try {
       const res = await fetch('/api/auth/profile', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: editName, email: editEmail }),
+        body: JSON.stringify({
+          name: editName,
+          email: editEmail,
+          phone: editPhone.trim() || null,
+        }),
       })
       const data = await res.json()
       if (res.ok) {
         toast({ title: 'Profile updated', description: 'Your profile has been updated successfully.' })
+        if (data.user && user) {
+          useAuthStore.getState().setUser({ ...user, ...data.user })
+        }
         await useAuthStore.getState().fetchSession()
       } else {
         toast({ title: 'Error', description: data.error || 'Failed to update profile', variant: 'destructive' })
@@ -4840,7 +5778,7 @@ function ProfileView() {
         <div className="gradient-border rounded-2xl overflow-hidden mb-6">
           <Card className="border-0">
             <CardContent className="p-0">
-              <div className="relative bg-gradient-to-br from-primary/10 via-amber-500/5 to-orange-500/10 p-6 sm:p-8">
+              <div className="relative bg-gradient-to-br from-primary/10 via-emerald-500/5 to-green-500/10 p-6 sm:p-8">
                 <div className="absolute top-4 right-4">
                   <Button variant="outline" size="sm" className="gap-2" onClick={handleSignOut}>
                     <LogOut className="size-4" /> Sign Out
@@ -4857,6 +5795,12 @@ function ProfileView() {
                   <div className="min-w-0">
                     <h2 className="font-serif text-xl sm:text-2xl font-bold truncate">{user.name}</h2>
                     <p className="text-muted-foreground text-sm truncate">{user.email}</p>
+                    {(editPhone || user.phone) && (
+                      <p className="text-muted-foreground text-sm truncate flex items-center gap-1.5 mt-0.5">
+                        <Phone className="size-3.5 shrink-0" />
+                        {editPhone || user.phone}
+                      </p>
+                    )}
                     <div className="flex items-center gap-2 mt-2">
                       <Badge variant="secondary" className="text-xs">
                         {user.role === 'admin' ? (
@@ -4941,6 +5885,18 @@ function ProfileView() {
                     />
                   </div>
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-phone">Mobile Number</Label>
+                  <PhoneInput
+                    id="edit-phone"
+                    value={editPhone}
+                    onChange={setEditPhone}
+                    autoComplete="tel"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {editPhone ? 'Used for mobile sign-in and order updates' : 'Add your mobile number to sign in with phone'}
+                  </p>
+                </div>
                 <Button onClick={handleSaveProfile} disabled={savingProfile} className="gap-2">
                   {savingProfile ? (
                     <div className="size-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -5015,7 +5971,7 @@ function ProfileView() {
                     />
                   </div>
                   {confirmNewPassword && newPassword === confirmNewPassword && (
-                    <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-1 text-xs text-emerald-600">
+                    <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-1 text-xs text-primary">
                       <Check className="size-3" /> Passwords match
                     </motion.p>
                   )}
@@ -5113,6 +6069,9 @@ function ProfileView() {
         <div className="mt-6 grid grid-cols-2 sm:grid-cols-3 gap-3">
           <Button variant="outline" className="justify-start gap-2 h-11 text-sm" onClick={() => setView({ view: 'products' })}>
             <Store className="size-4" /> Shop
+          </Button>
+          <Button variant="outline" className="justify-start gap-2 h-11 text-sm" onClick={() => setView({ view: 'wishlist' })}>
+            <Heart className="size-4" /> Wishlist
           </Button>
           <Button variant="outline" className="justify-start gap-2 h-11 text-sm" onClick={() => setView({ view: 'cart' })}>
             <ShoppingCart className="size-4" /> Cart
@@ -5345,11 +6304,7 @@ function AdminCategories({ onCategoriesChange }: { onCategoriesChange?: () => vo
     c.slug.toLowerCase().includes(search.toLowerCase())
   )
 
-  const statusBadge: Record<string, string> = {
-    active: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
-    coming_soon: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
-    inactive: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-  }
+  const statusBadge = royalCategoryStatusColors
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
@@ -5503,7 +6458,7 @@ function AdminCategories({ onCategoriesChange }: { onCategoriesChange?: () => vo
               </DialogDescription>
             </DialogHeader>
             {selectedCategory && (selectedCategory._count?.products ?? 0) > 0 && (
-              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 text-sm text-amber-700 dark:text-amber-400">
+              <div className="bg-primary/5 dark:bg-primary/10 border border-primary/20 dark:border-primary/30 rounded-lg p-3 text-sm text-primary">
                 ⚠️ This category has {selectedCategory._count?.products} product(s). You must move or delete them first.
               </div>
             )}
@@ -5730,10 +6685,10 @@ function AdminStaff() {
 
   // Access level info for display
   const accessLevelInfo: Record<string, { label: string; color: string; desc: string; icon: React.ElementType }> = {
-    full: { label: 'Full Access', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700', desc: 'Can view, add, edit & delete everything', icon: Shield },
-    view: { label: 'View Access', color: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400 border-sky-300 dark:border-sky-700', desc: 'Can only view — no add, edit or delete', icon: Eye },
-    update: { label: 'Update Access', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border-amber-300 dark:border-amber-700', desc: 'Can view, add & edit — cannot delete', icon: Pencil },
-    custom: { label: 'Custom', color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 border-purple-300 dark:border-purple-700', desc: 'Custom permission combination', icon: ToggleLeft },
+    full: { label: 'Full Access', color: 'bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary border-primary/30 dark:border-primary/40', desc: 'Can view, add, edit & delete everything', icon: Shield },
+    view: { label: 'View Access', color: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700', desc: 'Can only view — no add, edit or delete', icon: Eye },
+    update: { label: 'Update Access', color: 'bg-gold/15 text-gold dark:bg-gold/10 dark:text-gold border-gold/30 dark:border-gold/40', desc: 'Can view, add & edit — cannot delete', icon: Pencil },
+    custom: { label: 'Custom', color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 border-green-300 dark:border-green-700', desc: 'Custom permission combination', icon: ToggleLeft },
   }
 
   // Get access level for a staff member
@@ -5858,7 +6813,7 @@ function AdminStaff() {
                         onClick={() => togglePermission(section.key, action)}
                         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-200 border ${
                           perms[action]
-                            ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400'
+                            ? 'bg-primary/10 dark:bg-primary/20 border-primary/30 dark:border-primary/40 text-primary'
                             : 'bg-muted/50 border-border text-muted-foreground hover:bg-muted'
                         }`}
                       >
@@ -5867,7 +6822,7 @@ function AdminStaff() {
                       </button>
                     ))}
                     {allGranted && (
-                      <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 border-0 text-[10px]">
+                      <Badge className="bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary border-0 text-[10px]">
                         Full Access
                       </Badge>
                     )}
@@ -6002,10 +6957,10 @@ function AdminStaff() {
                           </div>
                           <div className="w-full bg-muted rounded-full h-1.5">
                             <div className={`h-1.5 rounded-full transition-all ${
-                              accessLevel === 'full' ? 'bg-emerald-500' :
-                              accessLevel === 'update' ? 'bg-amber-500' :
-                              accessLevel === 'view' ? 'bg-sky-500' :
-                              'bg-purple-500'
+                              accessLevel === 'full' ? 'bg-primary' :
+                              accessLevel === 'update' ? 'bg-gold' :
+                              accessLevel === 'view' ? 'bg-emerald-500' :
+                              'bg-green-500'
                             }`} style={{ width: `${(permCount / totalPerms) * 100}%` }} />
                           </div>
                           <div className="flex flex-wrap gap-1 mt-2">
@@ -6015,9 +6970,9 @@ function AdminStaff() {
                               const hasEdit = sectionPerms.edit || sectionPerms.add
                               return (
                                 <Badge key={ps.key} variant="secondary" className={`text-[10px] px-1.5 py-0 ${
-                                  hasFull ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' :
-                                  hasEdit ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
-                                  'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400'
+                                  hasFull ? 'bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary' :
+                                  hasEdit ? 'bg-gold/15 text-gold dark:bg-gold/10 dark:text-gold' :
+                                  'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300'
                                 }`}>
                                   <ps.icon className="size-2.5 mr-0.5" /> {ps.label}
                                 </Badge>
@@ -6163,20 +7118,25 @@ function AdminGuard({ children }: { children: React.ReactNode }) {
     return (
       <div className="max-w-lg mx-auto px-4 sm:px-6 py-16">
         <motion.div {...fadeIn}>
-          <div className="gradient-border rounded-2xl">
-            <Card className="border-0 shadow-xl">
-              <CardHeader className="text-center pb-2">
+          <div className="rounded-2xl overflow-hidden border border-white/10 shadow-2xl">
+            <div className="relative">
+              <div className="absolute inset-0 royal-hero-bg" />
+              <div className="absolute inset-0 bg-black/20 pointer-events-none" />
+              <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-gold/40 to-transparent" />
+              <div className="relative p-8 text-center text-white">
                 <motion.div
                   animate={{ scale: [1, 1.05, 1] }}
                   transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-                  className="mx-auto mb-4 size-16 rounded-full bg-primary/10 flex items-center justify-center"
+                  className="mx-auto mb-4 size-16 rounded-full bg-white/10 ring-2 ring-gold/30 flex items-center justify-center"
                 >
-                  <ShieldCheck className="size-8 text-primary" />
+                  <ShieldCheck className="size-8 text-gold" />
                 </motion.div>
-                <CardTitle className="font-serif text-2xl">Admin Access Required</CardTitle>
-                <CardDescription>Sign in with admin credentials to access the dashboard</CardDescription>
-              </CardHeader>
-              <CardContent className="pt-4">
+                <h2 className="font-serif text-2xl font-bold mb-2">Admin Access Required</h2>
+                <p className="text-white/70 text-sm">Sign in with admin credentials to access the dashboard</p>
+              </div>
+            </div>
+            <Card className="border-0 rounded-none shadow-none">
+              <CardContent className="pt-6">
                 <form onSubmit={handleAdminLogin} className="space-y-4">
                   <AnimatePresence>
                     {adminError && (
@@ -6231,9 +7191,9 @@ function AdminGuard({ children }: { children: React.ReactNode }) {
                     </div>
                   </div>
 
-                  <Button type="submit" className="w-full" size="lg" disabled={adminLoading}>
+                  <Button type="submit" className="w-full bg-gold text-green-950 hover:bg-gold/90 font-semibold" size="lg" disabled={adminLoading}>
                     {adminLoading ? (
-                      <div className="size-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <div className="size-4 border-2 border-green-950 border-t-transparent rounded-full animate-spin" />
                     ) : (
                       <>
                         <ShieldCheck className="size-4 mr-2" /> Sign In as Admin
@@ -6242,12 +7202,12 @@ function AdminGuard({ children }: { children: React.ReactNode }) {
                   </Button>
 
                   {/* Demo Credentials Hint */}
-                  <div className="rounded-lg border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-900/20 p-3">
+                  <div className="rounded-lg border border-gold/25 bg-gold/10 p-3">
                     <div className="flex items-start gap-2">
-                      <AlertCircle className="size-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                      <AlertCircle className="size-4 text-gold shrink-0 mt-0.5" />
                       <div>
-                        <p className="text-xs font-medium text-amber-800 dark:text-amber-300">Demo Credentials</p>
-                        <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-0.5 font-mono">
+                        <p className="text-xs font-medium text-gold">Demo Credentials</p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5 font-mono">
                           admin@alifaain.com / admin123
                         </p>
                       </div>
@@ -6256,7 +7216,7 @@ function AdminGuard({ children }: { children: React.ReactNode }) {
                 </form>
               </CardContent>
               <CardFooter className="justify-center border-t pt-4">
-                <Button variant="ghost" size="sm" onClick={() => setView({ view: 'home' })}>
+                <Button variant="ghost" size="sm" onClick={() => setView({ view: 'home' })} className="text-primary hover:text-primary">
                   <Home className="size-4 mr-2" /> Back to Home
                 </Button>
               </CardFooter>
@@ -6271,19 +7231,22 @@ function AdminGuard({ children }: { children: React.ReactNode }) {
     return (
       <div className="max-w-md mx-auto px-4 sm:px-6 py-16 text-center">
         <motion.div {...fadeIn}>
-          <div className="gradient-border rounded-2xl">
-            <Card className="border-0">
-              <CardContent className="p-8">
-                <div className="size-16 rounded-full bg-destructive/10 flex items-center justify-center mx-auto mb-4">
-                  <ShieldCheck className="size-8 text-destructive" />
+          <div className="rounded-2xl overflow-hidden border border-white/10 shadow-2xl">
+            <div className="relative p-8 text-white">
+              <div className="absolute inset-0 royal-hero-bg" />
+              <div className="absolute inset-0 bg-black/25 pointer-events-none" />
+              <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-gold/40 to-transparent" />
+              <div className="relative">
+                <div className="size-16 rounded-full bg-red-500/15 ring-2 ring-red-400/30 flex items-center justify-center mx-auto mb-4">
+                  <ShieldCheck className="size-8 text-red-300" />
                 </div>
                 <h2 className="font-serif text-2xl font-bold mb-2">Access Denied</h2>
-                <p className="text-muted-foreground mb-6">You don&apos;t have admin privileges to access this area.</p>
-                <Button onClick={() => setView({ view: 'home' })}>
+                <p className="text-white/70 mb-6">You don&apos;t have admin privileges to access this area.</p>
+                <Button className="bg-gold text-green-950 hover:bg-gold/90 font-semibold" onClick={() => setView({ view: 'home' })}>
                   <Home className="size-4 mr-2" /> Go Home
                 </Button>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           </div>
         </motion.div>
       </div>
@@ -6296,7 +7259,7 @@ function AdminGuard({ children }: { children: React.ReactNode }) {
 // ─── Main Page Component ─────────────────────────────────────────────────────
 
 export default function AlifaainPage() {
-  const { currentView } = useAppStore()
+  const { currentView, selectedCountry } = useAppStore()
   const { fetchSession, user, loading: authLoading } = useAuthStore()
   const [products, setProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<Category[]>([])
@@ -6376,6 +7339,24 @@ export default function AlifaainPage() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }, [currentView.view])
 
+  // Track customer engagement on page navigation
+  useEffect(() => {
+    if (loading || authLoading) return
+    if (currentView.view.startsWith('admin')) return
+
+    trackEvent('page_view', currentView.view, {
+      userId: user?.id,
+      country: selectedCountry,
+    })
+
+    if (currentView.view === 'checkout') {
+      trackEvent('checkout', 'checkout', {
+        userId: user?.id,
+        country: selectedCountry,
+      })
+    }
+  }, [currentView.view, loading, authLoading, user?.id, selectedCountry])
+
   if (loading || authLoading) {
     return (
       <div className="min-h-screen flex flex-col">
@@ -6405,6 +7386,8 @@ export default function AlifaainPage() {
         return <ContactView />
       case 'cart':
         return <CartView />
+      case 'wishlist':
+        return <WishlistView products={products} />
       case 'checkout':
         return <CheckoutView />
       case 'signin':

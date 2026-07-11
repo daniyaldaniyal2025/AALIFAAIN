@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { trackEvent } from '@/lib/analytics'
 
 interface CartItem {
   productId: string
@@ -25,6 +26,7 @@ export const useCartStore = create<CartStore>()(
       items: [],
       addItem: (item) =>
         set((state) => {
+          trackEvent('add_to_cart', 'products', { meta: item.productId })
           const existing = state.items.find((i) => i.productId === item.productId)
           if (existing) {
             return {
@@ -51,8 +53,82 @@ export const useCartStore = create<CartStore>()(
   )
 )
 
+interface WishlistItem {
+  productId: string
+  name: string
+  price: number
+  image?: string
+}
+
+interface WishlistStore {
+  items: WishlistItem[]
+  addItem: (item: WishlistItem) => void
+  removeItem: (productId: string) => void
+  toggleItem: (item: WishlistItem) => boolean
+  isInWishlist: (productId: string) => boolean
+  clearWishlist: () => void
+  totalItems: () => number
+}
+
+export const useWishlistStore = create<WishlistStore>()(
+  persist(
+    (set, get) => ({
+      items: [],
+      addItem: (item) =>
+        set((state) => {
+          if (state.items.some((i) => i.productId === item.productId)) return state
+          return { items: [...state.items, item] }
+        }),
+      removeItem: (productId) =>
+        set((state) => ({
+          items: state.items.filter((i) => i.productId !== productId),
+        })),
+      toggleItem: (item) => {
+        const exists = get().items.some((i) => i.productId === item.productId)
+        if (exists) {
+          set((state) => ({
+            items: state.items.filter((i) => i.productId !== item.productId),
+          }))
+          return false
+        }
+        set((state) => ({ items: [...state.items, item] }))
+        return true
+      },
+      isInWishlist: (productId) => get().items.some((i) => i.productId === productId),
+      clearWishlist: () => set({ items: [] }),
+      totalItems: () => get().items.length,
+    }),
+    { name: 'alifaain-wishlist' }
+  )
+)
+
+export interface AppliedCoupon {
+  code: string
+  discountAmount: number
+  discountType: 'percent' | 'fixed'
+  discountValue: number
+  description?: string | null
+}
+
+interface CouponStore {
+  applied: AppliedCoupon | null
+  setApplied: (coupon: AppliedCoupon) => void
+  clearApplied: () => void
+}
+
+export const useCouponStore = create<CouponStore>()(
+  persist(
+    (set) => ({
+      applied: null,
+      setApplied: (coupon) => set({ applied: coupon }),
+      clearApplied: () => set({ applied: null }),
+    }),
+    { name: 'alifaain-coupon' }
+  )
+)
+
 interface AppView {
-  view: 'home' | 'products' | 'product-detail' | 'cart' | 'checkout' | 'admin' | 'admin-products' | 'admin-orders' | 'admin-categories' | 'admin-staff' | 'signin' | 'signup' | 'profile' | 'about' | 'contact'
+  view: 'home' | 'products' | 'product-detail' | 'cart' | 'wishlist' | 'checkout' | 'admin' | 'admin-products' | 'admin-orders' | 'admin-categories' | 'admin-staff' | 'signin' | 'signup' | 'profile' | 'about' | 'contact'
   params?: Record<string, string>
 }
 

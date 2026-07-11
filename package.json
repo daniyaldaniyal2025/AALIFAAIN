@@ -4,8 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "npx next dev -p 3000",
-   "build": "prisma generate && next build",
-   
+    "dev:realtime": "node mini-services/realtime-service/index.ts",
+    "postinstall": "prisma generate",
+    "setup": "prisma db push",
+    "build": "next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/",
     "start": "NODE_ENV=production bun .next/standalone/server.js 2>&1 | tee server.log",
     "lint": "eslint .",
     "db:push": "prisma db push",

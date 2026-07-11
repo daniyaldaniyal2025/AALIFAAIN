@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -44,6 +44,8 @@ model Order {
   customerEmail  String
   customerPhone  String?
   total          Float
+  couponCode     String?
+  discountAmount Float       @default(0)
   status         String      @default("pending")
   currency       String      @default("SAR")
   country        String      @default("SA")
@@ -74,6 +76,7 @@ model User {
   id            String    @id @default(cuid())
   name          String
   email         String    @unique
+  phone         String?   @unique
   password      String
   image         String?
   role          String    @default("customer")
@@ -119,4 +122,35 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+}
+
+model SiteEvent {
+  id        String   @id @default(cuid())
+  type      String
+  page      String
+  sessionId String
+  userId    String?
+  country   String?
+  meta      String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([type, createdAt])
+  @@index([page, createdAt])
+  @@index([sessionId])
+}
+
+model Coupon {
+  id            String    @id @default(cuid())
+  code          String    @unique
+  description   String?
+  discountType  String    @default("percent")
+  discountValue Float
+  minOrderTotal Float     @default(0)
+  maxUses       Int?
+  usedCount     Int       @default(0)
+  active        Boolean   @default(true)
+  expiresAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 }

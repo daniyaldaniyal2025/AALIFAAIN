@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { hashPassword } from '@/lib/password'
 import { db } from '@/lib/db'
+import { isValidPhone, normalizePhone } from '@/lib/phone'
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { name, email, password } = body
+    const { name, email, phone, password } = body
 
     if (!name || !email || !password) {
       return NextResponse.json(
@@ -21,11 +22,21 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const normalizedEmail = email.trim().toLowerCase()
+    const normalizedPhone = phone ? normalizePhone(phone) : null
+
+    if (normalizedPhone && !isValidPhone(normalizedPhone)) {
+      return NextResponse.json(
+        { error: 'Please enter a valid mobile number' },
+        { status: 400 }
+      )
+    }
+
     // Check if user already exists
     let existingUser
     try {
       existingUser = await db.user.findUnique({
-        where: { email },
+        where: { email: normalizedEmail },
       })
     } catch (dbError) {
       console.error('DB find error:', dbError)
@@ -42,6 +53,16 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    if (normalizedPhone) {
+      const existingPhone = await db.user.findUnique({ where: { phone: normalizedPhone } })
+      if (existingPhone) {
+        return NextResponse.json(
+          { error: 'An account with this mobile number already exists' },
+          { status: 409 }
+        )
+      }
+    }
+
     // Hash password
     const hashedPassword = hashPassword(password)
 
@@ -50,7 +71,8 @@ export async function POST(request: NextRequest) {
       const user = await db.user.create({
         data: {
           name,
-          email,
+          email: normalizedEmail,
+          phone: normalizedPhone,
           password: hashedPassword,
           role: 'customer',
         },
@@ -58,6 +80,7 @@ export async function POST(request: NextRequest) {
           id: true,
           name: true,
           email: true,
+          phone: true,
           role: true,
           createdAt: true,
         },
