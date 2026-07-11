@@ -1,5 +1,7 @@
 import { db } from '@/lib/db'
 import { hashPassword } from '@/lib/password'
+import { seedEngagementEvents } from '@/lib/seed-engagement'
+import { seedCoupons } from '@/lib/seed-coupons'
 
 const FULL_PERMISSIONS = JSON.stringify({
   products: { view: true, add: true, edit: true, delete: true },
@@ -54,11 +56,20 @@ export async function GET() {
           data: {
             name: 'Demo Customer',
             email: 'customer@alifaain.com',
+            phone: '+966501234567',
             password: hashedPassword,
             role: 'customer',
           },
         })
+      } else if (!customerExists.phone) {
+        await db.user.update({
+          where: { id: customerExists.id },
+          data: { phone: '+966501234567' },
+        })
       }
+
+      await seedEngagementEvents()
+      await seedCoupons()
 
       return Response.json({ message: 'Database already seeded', count })
     }
@@ -265,11 +276,20 @@ export async function GET() {
         data: {
           name: 'Demo Customer',
           email: 'customer@alifaain.com',
+          phone: '+966501234567',
           password: hashedPassword,
           role: 'customer',
         },
       })
+    } else if (!customerExists.phone) {
+      await db.user.update({
+        where: { id: customerExists.id },
+        data: { phone: '+966501234567' },
+      })
     }
+
+    await seedEngagementEvents()
+    await seedCoupons()
 
     const finalCount = await db.product.count()
     return Response.json({ message: 'Database seeded successfully', products: finalCount })

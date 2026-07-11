@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifySessionToken } from '@/lib/session'
 import { hashPassword } from '@/lib/password'
 import { db } from '@/lib/db'
+import { isValidPhone, normalizePhone } from '@/lib/phone'
 
 export async function GET(request: NextRequest) {
   try {
@@ -21,6 +22,7 @@ export async function GET(request: NextRequest) {
         id: true,
         name: true,
         email: true,
+        phone: true,
         image: true,
         role: true,
         createdAt: true,
@@ -54,7 +56,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { name, email, currentPassword, newPassword } = body
+    const { name, email, phone, currentPassword, newPassword } = body
 
     const user = await db.user.findUnique({ where: { id: sessionUser.id } })
     if (!user) {
@@ -78,7 +80,7 @@ export async function PUT(request: NextRequest) {
     }
 
     // Update profile fields
-    const updateData: { name?: string; email?: string } = {}
+    const updateData: { name?: string; email?: string; phone?: string | null } = {}
     if (name && name !== user.name) {
       updateData.name = name
     }
@@ -89,6 +91,21 @@ export async function PUT(request: NextRequest) {
         return NextResponse.json({ error: 'Email is already taken' }, { status: 409 })
       }
       updateData.email = email
+    }
+    if (phone !== undefined) {
+      const normalizedPhone = phone ? normalizePhone(phone) : null
+      if (normalizedPhone && !isValidPhone(normalizedPhone)) {
+        return NextResponse.json({ error: 'Please enter a valid mobile number' }, { status: 400 })
+      }
+      if (normalizedPhone !== user.phone) {
+        if (normalizedPhone) {
+          const existingPhone = await db.user.findUnique({ where: { phone: normalizedPhone } })
+          if (existingPhone && existingPhone.id !== sessionUser.id) {
+            return NextResponse.json({ error: 'This mobile number is already in use' }, { status: 409 })
+          }
+        }
+        updateData.phone = normalizedPhone
+      }
     }
 
     if (Object.keys(updateData).length > 0) {
@@ -101,7 +118,7 @@ export async function PUT(request: NextRequest) {
     // Get updated user
     const updatedUser = await db.user.findUnique({
       where: { id: sessionUser.id },
-      select: { id: true, name: true, email: true, image: true, role: true },
+      select: { id: true, name: true, email: true, phone: true, image: true, role: true },
     })
 
     return NextResponse.json({ success: true, user: updatedUser })

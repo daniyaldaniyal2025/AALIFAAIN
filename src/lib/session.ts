@@ -4,6 +4,7 @@ export interface SessionUser {
   id: string
   name: string
   email: string
+  phone?: string | null
   image: string | null
   role: string
   adminRole?: string
@@ -56,6 +57,7 @@ export function verifySessionToken(token: string): SessionUser | null {
       id: parsed.id,
       name: parsed.name,
       email: parsed.email,
+      phone: parsed.phone ?? null,
       image: parsed.image || null,
       role: parsed.role,
       adminRole: parsed.adminRole || undefined,

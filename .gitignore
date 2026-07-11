@@ -1,7 +1,7 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# See https://help.github.com/articles/ignoring-files/
 
-# dependencies
-node_modules
+# Dependencies
+/node_modules
 /.pnp
 .pnp.*
 .yarn/*
@@ -10,46 +10,82 @@ node_modules
 !.yarn/releases
 !.yarn/versions
 
-# testing
+# Testing
 /coverage
 
-# next.js
+# Next.js
 /.next/
 /out/
 
-# production
+# Production
 /build
+/dist
 
-# misc
-.DS_Store
-*.pem
+# Turbo
+.turbo
 
-# debug
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Environment variables (never commit secrets)
+.env
+.env.*
+!.env.example
+
+# Vercel
+.vercel
+
+# Prisma / Database
+/prisma/*.db
+/prisma/*.db-journal
+/db/
+*.db
+*.db-journal
+
+# Debug & runtime logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
-
-# env files (can opt-in for committing if needed)
-.env*
-
-# vercel
-.vercel
-
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
-local-*
-.claude
-.z-ai-config
 *.log
+server.log
 dev.log
 dev.out.log
-test
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE / editors
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+*.swo
+
+# Certificates
+*.pem
+
+# User uploads & generated assets
+/upload/
+/public/uploads/
+/assets/
+
+# Screenshots & local artifacts
+screenshot*.png
+
+# Local config & tooling
+.neon
+.claude
+.z-ai-config
+local-*
+/skills/
 prompt
 
-server.log
-# Skills directory
-/skills/
-.vercel
+# Mini-services
+mini-services/*/node_modules/
+
+# Local test/output directory (not app source tests)
+/test
