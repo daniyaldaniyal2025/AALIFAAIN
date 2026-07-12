@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { trackEvent } from '@/lib/analytics'
+import { setExchangeRates } from '@/lib/currency'
 
 interface CartItem {
   productId: string
@@ -141,11 +142,15 @@ interface AppStore {
   setSearchQuery: (query: string) => void
   selectedCategory: string | null
   setSelectedCategory: (category: string | null) => void
+  exchangeRates: Record<string, number> | null
+  ratesLastUpdated: number | null
+  ratesLive: boolean
+  fetchExchangeRates: () => Promise<void>
 }
 
 export const useAppStore = create<AppStore>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       currentView: { view: 'home' },
       setView: (view) => set({ currentView: view }),
       selectedCountry: 'SA',
@@ -154,6 +159,25 @@ export const useAppStore = create<AppStore>()(
       setSearchQuery: (query) => set({ searchQuery: query }),
       selectedCategory: null,
       setSelectedCategory: (category) => set({ selectedCategory: category }),
+      exchangeRates: null,
+      ratesLastUpdated: null,
+      ratesLive: false,
+      fetchExchangeRates: async () => {
+        try {
+          const res = await fetch('/api/currency/rates')
+          const data = await res.json()
+          if (data.rates) {
+            setExchangeRates(data.rates, data.live !== false)
+            set({
+              exchangeRates: data.rates,
+              ratesLastUpdated: data.updatedAt ?? Date.now(),
+              ratesLive: data.live !== false,
+            })
+          }
+        } catch {
+          // Keep existing rates on failure
+        }
+      },
     }),
     {
       name: 'alifaain-app',

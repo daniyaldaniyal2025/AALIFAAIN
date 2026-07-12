@@ -1385,7 +1385,7 @@ function ProductCard({ product }: { product: Product }) {
       transition={{ type: 'spring', stiffness: 300 }}
       className="min-w-[240px] max-w-[280px] snap-start"
     >
-      <Card className="overflow-hidden h-full hover:shadow-xl transition-shadow duration-300 cursor-pointer group"
+      <Card className="overflow-hidden h-full py-0 gap-0 hover:shadow-xl transition-shadow duration-300 cursor-pointer group"
         onClick={() => setView({ view: 'product-detail', params: { id: product.id } })}
       >
         <div className={`relative h-44 ${product.image ? '' : 'bg-gradient-to-br ' + getGradientForCategory(product.category.slug)} flex items-center justify-center overflow-hidden`}>
@@ -2299,7 +2299,7 @@ function ProductGridCard({ product }: { product: Product }) {
 
   return (
     <motion.div whileHover={{ scale: 1.02 }} transition={{ type: 'spring', stiffness: 300 }}>
-      <Card className="overflow-hidden h-full hover:shadow-xl transition-shadow duration-300 cursor-pointer group"
+      <Card className="overflow-hidden h-full py-0 gap-0 hover:shadow-xl transition-shadow duration-300 cursor-pointer group"
         onClick={() => setView({ view: 'product-detail', params: { id: product.id } })}
       >
         <div className={`relative h-48 ${product.image ? '' : 'bg-gradient-to-br ' + getGradientForCategory(product.category.slug)} flex items-center justify-center overflow-hidden`}>
@@ -2735,7 +2735,7 @@ function WishlistView({ products }: { products: Product[] }) {
             const outOfStock = product?.stock === 0
 
             return (
-              <Card key={item.productId} className="overflow-hidden group">
+              <Card key={item.productId} className="overflow-hidden py-0 gap-0 group">
                 <div
                   className="relative h-44 cursor-pointer"
                   onClick={() => product && setView({ view: 'product-detail', params: { id: product.id } })}
@@ -6363,7 +6363,7 @@ function AdminCategories({ onCategoriesChange }: { onCategoriesChange?: () => vo
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredCategories.map(cat => (
               <motion.div key={cat.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
-                <Card className="overflow-hidden group hover:shadow-lg transition-all duration-300">
+                <Card className="overflow-hidden py-0 gap-0 group hover:shadow-lg transition-all duration-300">
                   {/* Category Image/Header */}
                   <div className={`relative h-32 bg-gradient-to-br ${getGradientForCategory(cat.slug)} overflow-hidden`}>
                     {cat.image && (
@@ -6929,7 +6929,7 @@ function AdminStaff() {
               const LevelIcon = levelInfo.icon
               return (
                 <motion.div key={s.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
-                  <Card className="overflow-hidden group hover:shadow-lg transition-all duration-300">
+                  <Card className="overflow-hidden py-0 gap-0 group hover:shadow-lg transition-all duration-300">
                     <div className="bg-gradient-to-r from-primary/10 to-primary/5 p-4">
                       <div className="flex items-center gap-3">
                         <div className="size-12 rounded-full bg-primary/10 flex items-center justify-center text-lg font-bold text-primary">
@@ -7259,7 +7259,7 @@ function AdminGuard({ children }: { children: React.ReactNode }) {
 // ─── Main Page Component ─────────────────────────────────────────────────────
 
 export default function AlifaainPage() {
-  const { currentView, selectedCountry } = useAppStore()
+  const { currentView, selectedCountry, fetchExchangeRates } = useAppStore()
   const { fetchSession, user, loading: authLoading } = useAuthStore()
   const [products, setProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<Category[]>([])
@@ -7270,6 +7270,13 @@ export default function AlifaainPage() {
   useEffect(() => {
     fetchSession()
   }, [fetchSession])
+
+  // Fetch live exchange rates on mount and refresh every 30 minutes
+  useEffect(() => {
+    fetchExchangeRates()
+    const interval = setInterval(fetchExchangeRates, 30 * 60 * 1000)
+    return () => clearInterval(interval)
+  }, [fetchExchangeRates])
 
   // Seed database on first mount
   useEffect(() => {

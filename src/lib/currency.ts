@@ -5,7 +5,7 @@ export interface CountryInfo {
   currency: string
   currencySymbol: string
   flag: string
-  rate: number // Exchange rate from SAR to this currency
+  rate: number // Static fallback rate from SAR to this currency
 }
 
 export const countries: CountryInfo[] = [
@@ -32,17 +32,40 @@ export const countries: CountryInfo[] = [
   { code: 'KR', name: 'South Korea', currency: 'KRW', currencySymbol: '₩', flag: '🇰🇷', rate: 369.50 },
 ]
 
+let liveRates: Record<string, number> | null = null
+let ratesUpdatedAt: number | null = null
+let ratesAreLive = false
+
+export function setExchangeRates(rates: Record<string, number>, live = true) {
+  liveRates = rates
+  ratesUpdatedAt = Date.now()
+  ratesAreLive = live
+}
+
+export function getRatesUpdatedAt(): number | null {
+  return ratesUpdatedAt
+}
+
+export function areRatesLive(): boolean {
+  return ratesAreLive
+}
+
+function getRateForCountry(countryCode: string): number {
+  const country = countries.find((c) => c.code === countryCode) || countries[0]
+  if (country.currency === 'SAR') return 1
+  if (liveRates?.[country.currency] !== undefined) {
+    return liveRates[country.currency]
+  }
+  return country.rate
+}
+
 export function convertPrice(priceInSAR: number, countryCode: string): number {
-  const country = countries.find((c) => c.code === countryCode)
-  if (!country) return priceInSAR
-  return priceInSAR * country.rate
+  return priceInSAR * getRateForCountry(countryCode)
 }
 
 export function formatPrice(priceInSAR: number, countryCode: string): string {
-  const country = countries.find((c) => c.code === countryCode)
-  if (!country) return `﷼ ${priceInSAR.toFixed(2)}`
-
-  const converted = priceInSAR * country.rate
+  const country = countries.find((c) => c.code === countryCode) || countries[0]
+  const converted = priceInSAR * getRateForCountry(countryCode)
 
   if (country.currency === 'KRW' || country.currency === 'LBP' || country.currency === 'IQD') {
     return `${country.currencySymbol} ${Math.round(converted).toLocaleString()}`
@@ -52,5 +75,9 @@ export function formatPrice(priceInSAR: number, countryCode: string): string {
 }
 
 export function getCountryByCode(code: string): CountryInfo {
-  return countries.find((c) => c.code === code) || countries[0]
+  const country = countries.find((c) => c.code === code) || countries[0]
+  return {
+    ...country,
+    rate: getRateForCountry(code),
+  }
 }
