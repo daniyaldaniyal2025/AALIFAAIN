@@ -8,7 +8,11 @@ export async function GET() {
     })
     return Response.json(categories)
   } catch (error) {
-    return Response.json({ error: 'Failed to fetch categories' }, { status: 500 })
+    console.error('Failed to fetch categories:', error)
+    return Response.json(
+      { error: 'Failed to fetch categories', detail: error instanceof Error ? error.message : String(error) },
+      { status: 500 },
+    )
   }
 }
 

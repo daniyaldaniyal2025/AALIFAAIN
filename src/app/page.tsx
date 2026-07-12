@@ -7293,8 +7293,14 @@ export default function AlifaainPage() {
     if (seeded) {
       fetch('/api/products')
         .then(r => r.json())
-        .then(data => { setProducts(data); setLoading(false) })
-        .catch(() => setLoading(false))
+        .then(data => {
+          setProducts(Array.isArray(data) ? data : [])
+          setLoading(false)
+        })
+        .catch(() => {
+          setProducts([])
+          setLoading(false)
+        })
       fetch('/api/categories')
         .then(r => r.json())
         .then(data => { if (Array.isArray(data)) setCategories(data) })
@@ -7321,6 +7327,7 @@ export default function AlifaainPage() {
   // ─── Realtime Socket.io Connection ──────────────────────────────────────────
   useEffect(() => {
     const socket = getSocket()
+    if (!socket) return
 
     // Listen for product change events and auto-refresh
     socket.on('product:changed', (data: { action: string; productId?: string }) => {

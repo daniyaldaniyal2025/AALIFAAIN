@@ -7,9 +7,18 @@ function daysAgo(days: number) {
   return date
 }
 
+function toDayKey(date: Date) {
+  return date.toISOString().slice(0, 10)
+}
+
+function toMonthKey(date: Date) {
+  return date.toISOString().slice(0, 7)
+}
+
 export async function GET() {
   try {
     const since30Days = daysAgo(30)
+    const since14Days = daysAgo(14)
 
     const stats = await Promise.all([
       db.product.count(),
@@ -30,13 +39,20 @@ export async function GET() {
       include: { items: true },
     })
 
-    const monthlyRevenue = await db.$queryRaw<Array<{ month: string; revenue: number }>>`
-      SELECT strftime('%Y-%m', createdAt) as month, SUM(total) as revenue
-      FROM \`Order\`
-      GROUP BY strftime('%Y-%m', createdAt)
-      ORDER BY month DESC
-      LIMIT 12
-    `
+    const ordersForRevenue = await db.order.findMany({
+      select: { createdAt: true, total: true },
+      orderBy: { createdAt: 'desc' },
+    })
+
+    const monthlyMap = new Map<string, number>()
+    for (const order of ordersForRevenue) {
+      const month = toMonthKey(new Date(order.createdAt))
+      monthlyMap.set(month, (monthlyMap.get(month) || 0) + order.total)
+    }
+    const monthlyRevenue = Array.from(monthlyMap.entries())
+      .map(([month, revenue]) => ({ month, revenue }))
+      .sort((a, b) => b.month.localeCompare(a.month))
+      .slice(0, 12)
 
     const paymentStats = await db.order.groupBy({
       by: ['paymentStatus'],
@@ -60,42 +76,43 @@ export async function GET() {
       where: { paymentStatus: 'pending' },
     })
 
-    // Customer engagement metrics
     const [
       totalCustomers,
       newCustomers30d,
       pageViews30d,
-      uniqueVisitorsRow,
-      dailyEngagement,
+      events30d,
+      events14d,
       topPagesRaw,
       signIns30d,
       signUps30d,
       addToCart30d,
       checkouts30d,
       orders30d,
-      returningCustomers,
     ] = await Promise.all([
       db.user.count({ where: { role: 'customer' } }),
       db.user.count({ where: { role: 'customer', createdAt: { gte: since30Days } } }),
-      db.siteEvent.count({ where: { type: 'page_view', createdAt: { gte: since30Days }, NOT: { page: { startsWith: 'admin' } } } }),
-      db.$queryRaw<Array<{ count: number }>>`
-        SELECT COUNT(DISTINCT sessionId) as count
-        FROM SiteEvent
-        WHERE createdAt >= ${since30Days.toISOString()}
-      `,
-      db.$queryRaw<Array<{ day: string; pageViews: number; uniqueVisitors: number }>>`
-        SELECT
-          date(createdAt) as day,
-          SUM(CASE WHEN type = 'page_view' THEN 1 ELSE 0 END) as pageViews,
-          COUNT(DISTINCT sessionId) as uniqueVisitors
-        FROM SiteEvent
-        WHERE createdAt >= date('now', '-14 days')
-        GROUP BY date(createdAt)
-        ORDER BY day ASC
-      `,
+      db.siteEvent.count({
+        where: {
+          type: 'page_view',
+          createdAt: { gte: since30Days },
+          NOT: { page: { startsWith: 'admin' } },
+        },
+      }),
+      db.siteEvent.findMany({
+        where: { createdAt: { gte: since30Days } },
+        select: { type: true, sessionId: true, createdAt: true },
+      }),
+      db.siteEvent.findMany({
+        where: { createdAt: { gte: since14Days } },
+        select: { type: true, sessionId: true, createdAt: true },
+      }),
       db.siteEvent.groupBy({
         by: ['page'],
-        where: { type: 'page_view', createdAt: { gte: since30Days }, NOT: { page: { startsWith: 'admin' } } },
+        where: {
+          type: 'page_view',
+          createdAt: { gte: since30Days },
+          NOT: { page: { startsWith: 'admin' } },
+        },
         _count: { page: true },
         orderBy: { _count: { page: 'desc' } },
         take: 8,
@@ -105,19 +122,36 @@ export async function GET() {
       db.siteEvent.count({ where: { type: 'add_to_cart', createdAt: { gte: since30Days } } }),
       db.siteEvent.count({ where: { type: 'checkout', createdAt: { gte: since30Days } } }),
       db.order.count({ where: { createdAt: { gte: since30Days } } }),
-      db.$queryRaw<Array<{ count: number }>>`
-        SELECT COUNT(*) as count FROM (
-          SELECT sessionId
-          FROM SiteEvent
-          WHERE type = 'page_view' AND createdAt >= ${since30Days.toISOString()}
-          GROUP BY sessionId
-          HAVING COUNT(*) > 1
-        )
-      `,
     ])
 
-    const uniqueVisitors30d = Number(uniqueVisitorsRow[0]?.count ?? 0)
-    const returningVisitors = Number(returningCustomers[0]?.count ?? 0)
+    const uniqueSessions30d = new Set(events30d.map(e => e.sessionId))
+    const uniqueVisitors30d = uniqueSessions30d.size
+
+    const sessionViewCounts = new Map<string, number>()
+    for (const event of events30d) {
+      if (event.type !== 'page_view') continue
+      sessionViewCounts.set(event.sessionId, (sessionViewCounts.get(event.sessionId) || 0) + 1)
+    }
+    const returningVisitors = Array.from(sessionViewCounts.values()).filter(count => count > 1).length
+
+    const dailyMap = new Map<string, { pageViews: number; sessions: Set<string> }>()
+    for (const event of events14d) {
+      const day = toDayKey(new Date(event.createdAt))
+      if (!dailyMap.has(day)) {
+        dailyMap.set(day, { pageViews: 0, sessions: new Set() })
+      }
+      const bucket = dailyMap.get(day)!
+      if (event.type === 'page_view') bucket.pageViews += 1
+      bucket.sessions.add(event.sessionId)
+    }
+    const dailyEngagement = Array.from(dailyMap.entries())
+      .map(([day, value]) => ({
+        day,
+        pageViews: value.pageViews,
+        uniqueVisitors: value.sessions.size,
+      }))
+      .sort((a, b) => a.day.localeCompare(b.day))
+
     const conversionRate = pageViews30d > 0 ? Math.round((orders30d / pageViews30d) * 1000) / 10 : 0
 
     return Response.json({
@@ -152,11 +186,7 @@ export async function GET() {
         checkouts30d,
         orders30d,
         conversionRate,
-        dailyEngagement: dailyEngagement.map(row => ({
-          day: row.day,
-          pageViews: Number(row.pageViews) || 0,
-          uniqueVisitors: Number(row.uniqueVisitors) || 0,
-        })),
+        dailyEngagement,
         topPages: topPagesRaw.map(row => ({
           page: row.page,
           views: row._count.page,

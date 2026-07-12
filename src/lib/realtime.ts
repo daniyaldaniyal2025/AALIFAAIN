@@ -2,7 +2,15 @@ import { io, Socket } from 'socket.io-client'
 
 let socketInstance: Socket | null = null
 
-export function getSocket(): Socket {
+/** Realtime sync is optional and only works with the local/transform socket proxy. */
+export function getSocket(): Socket | null {
+  if (typeof window === 'undefined') return null
+
+  // Skip on hosts that cannot proxy XTransformPort (Vercel, Render, etc.)
+  if (process.env.NEXT_PUBLIC_ENABLE_REALTIME !== 'true') {
+    return null
+  }
+
   if (!socketInstance) {
     socketInstance = io('/?XTransformPort=3003', {
       transports: ['websocket', 'polling'],
@@ -34,21 +42,17 @@ export function disconnectSocket() {
 // Emit a product change event to all connected clients
 export function emitProductChange(action: 'created' | 'updated' | 'deleted', productId?: string) {
   const socket = getSocket()
-  if (socket.connected) {
+  if (socket?.connected) {
     socket.emit('product:changed', { action, productId })
     console.log(`[Realtime] Emitted product:${action}`)
-  } else {
-    console.warn('[Realtime] Socket not connected, skipping emit')
   }
 }
 
 // Emit a category change event to all connected clients
 export function emitCategoryChange(action: 'created' | 'updated' | 'deleted', categoryId?: string) {
   const socket = getSocket()
-  if (socket.connected) {
+  if (socket?.connected) {
     socket.emit('category:changed', { action, categoryId })
     console.log(`[Realtime] Emitted category:${action}`)
-  } else {
-    console.warn('[Realtime] Socket not connected, skipping emit')
   }
 }

@@ -10,13 +10,13 @@
     "dev:realtime": "node mini-services/realtime-service/index.ts",
     "postinstall": "prisma generate",
     "setup": "prisma db push",
-    "build": "next build --webpack",
+    "build": "prisma generate && next build --webpack",
     "start": "next start",
     "lint": "eslint .",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate dev",
-    "db:reset": "prisma migrate reset"
+    "db:migrate-sqlite": "node --env-file=.env scripts/migrate-sqlite-to-mongo.mjs",
+    "db:seed": "curl -s http://localhost:3000/api/seed || echo Seed via /api/seed when server is running"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
