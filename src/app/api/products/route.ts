@@ -13,7 +13,11 @@ export async function GET() {
     }))
     return Response.json(parsed)
   } catch (error) {
-    return Response.json({ error: 'Failed to fetch products' }, { status: 500 })
+    console.error('Failed to fetch products:', error)
+    return Response.json(
+      { error: 'Failed to fetch products', detail: error instanceof Error ? error.message : String(error) },
+      { status: 500 },
+    )
   }
 }
 
