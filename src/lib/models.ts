@@ -27,6 +27,12 @@ const productSchema = new Schema(
     featured: { type: Boolean, default: false },
     discount: { type: Number, default: 0 },
     stock: { type: Number, default: 100 },
+    costPrice: { type: Number, default: 0 },
+    lowStockThreshold: { type: Number, default: 10 },
+    initialStock: Number,
+    totalRestocked: { type: Number, default: 0 },
+    totalSold: { type: Number, default: 0 },
+    totalAdjusted: { type: Number, default: 0 },
     status: { type: String, default: 'active' },
   },
   { timestamps: true, collection: 'Product' },
@@ -49,6 +55,8 @@ const orderSchema = new Schema(
     cardLast4: String,
     paidAt: Date,
     userId: { type: Schema.Types.ObjectId, ref: 'User' },
+    stockApplied: { type: Boolean, default: false },
+    stockRestored: { type: Boolean, default: false },
   },
   { timestamps: true, collection: 'Order' },
 )
@@ -60,6 +68,7 @@ const orderItemSchema = new Schema(
     name: { type: String, required: true },
     quantity: { type: Number, required: true },
     price: { type: Number, required: true },
+    costPrice: { type: Number, default: 0 },
   },
   { timestamps: false, collection: 'OrderItem' },
 )
@@ -134,6 +143,19 @@ siteEventSchema.index({ createdAt: 1 })
 siteEventSchema.index({ type: 1, createdAt: 1 })
 siteEventSchema.index({ page: 1, createdAt: 1 })
 
+const stockMovementSchema = new Schema(
+  {
+    productId: { type: Schema.Types.ObjectId, ref: 'Product', required: true, index: true },
+    orderId: { type: Schema.Types.ObjectId, ref: 'Order' },
+    type: { type: String, required: true },
+    quantity: { type: Number, required: true },
+    stockBefore: Number,
+    stockAfter: Number,
+    note: String,
+  },
+  { timestamps: { createdAt: true, updatedAt: false }, collection: 'StockMovement' },
+)
+
 const couponSchema = new Schema(
   {
     code: { type: String, required: true, unique: true },
@@ -161,6 +183,7 @@ export type VerificationTokenDoc = InferSchemaType<typeof verificationTokenSchem
 }
 export type SiteEventDoc = InferSchemaType<typeof siteEventSchema> & { _id: Schema.Types.ObjectId }
 export type CouponDoc = InferSchemaType<typeof couponSchema> & { _id: Schema.Types.ObjectId }
+export type StockMovementDoc = InferSchemaType<typeof stockMovementSchema> & { _id: Schema.Types.ObjectId }
 
 export const Category = getModel<CategoryDoc>('Category', categorySchema)
 export const Product = getModel<ProductDoc>('Product', productSchema)
@@ -175,3 +198,4 @@ export const VerificationToken = getModel<VerificationTokenDoc>(
 )
 export const SiteEvent = getModel<SiteEventDoc>('SiteEvent', siteEventSchema)
 export const Coupon = getModel<CouponDoc>('Coupon', couponSchema)
+export const StockMovement = getModel<StockMovementDoc>('StockMovement', stockMovementSchema)

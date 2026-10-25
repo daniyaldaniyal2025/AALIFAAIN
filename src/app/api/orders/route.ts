@@ -1,6 +1,7 @@
 import { db } from '@/lib/db'
 import { NextRequest } from 'next/server'
 import { validateCouponCode, applyCouponUsage } from '@/lib/coupons'
+import { applyOrderStock, ensureProductBaseline, restoreOrderStock } from '@/lib/inventory'
 
 export async function GET() {
   try {
@@ -36,11 +37,23 @@ export async function POST(request: Request) {
     }
 
     const total = Math.max(0, subtotal - discountAmount)
+    const normalizedEmail = String(customerEmail || '').trim().toLowerCase()
+    const buyer = normalizedEmail
+      ? await db.user.findUnique({ where: { email: normalizedEmail } })
+      : null
+
+    const catalog = await db.product.findMany({
+      where: { id: { in: items.map((item: { productId: string }) => item.productId) } },
+    })
+    for (const product of catalog) {
+      await ensureProductBaseline(product)
+    }
+    const costById = new Map(catalog.map(product => [product.id, product.costPrice || 0]))
 
     const order = await db.order.create({
       data: {
         customerName,
-        customerEmail,
+        customerEmail: normalizedEmail || customerEmail,
         customerPhone,
         total,
         couponCode: appliedCouponCode,
@@ -49,17 +62,23 @@ export async function POST(request: Request) {
         country: country || 'SA',
         paymentMethod: paymentMethod || 'cod',
         paymentStatus: 'pending',
+        userId: buyer?.id,
+        stockApplied: false,
+        stockRestored: false,
         items: {
           create: items.map((item: { productId: string; name: string; price: number; quantity: number }) => ({
             productId: item.productId,
             name: item.name,
             price: item.price,
             quantity: item.quantity,
+            costPrice: costById.get(item.productId) || 0,
           })),
         },
       },
       include: { items: true },
     })
+
+    await applyOrderStock(order.id)
 
     if (appliedCouponCode) {
       await applyCouponUsage(appliedCouponCode)
@@ -101,6 +120,13 @@ export async function PUT(request: NextRequest) {
       data: updateData,
       include: { items: true },
     })
+
+    const nextStatus = status || order.status
+    const wasClosed = order.status === 'cancelled' || order.status === 'refunded'
+    const nowClosed = nextStatus === 'cancelled' || nextStatus === 'refunded'
+    if (!wasClosed && nowClosed) {
+      await restoreOrderStock(orderId)
+    }
 
     return Response.json(updated)
   } catch (error) {

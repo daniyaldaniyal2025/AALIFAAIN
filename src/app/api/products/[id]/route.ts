@@ -1,4 +1,5 @@
 import { db } from '@/lib/db'
+import { ensureProductBaseline, recordStockChange } from '@/lib/inventory'
 import { NextRequest } from 'next/server'
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -22,12 +23,14 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   try {
     const { id } = await params
     const body = await request.json()
-    const { name, description, price, image, images, categoryId, featured, stock, status } = body
+    const { name, description, price, costPrice, image, images, categoryId, featured, stock, lowStockThreshold, status } = body
 
     const existing = await db.product.findUnique({ where: { id } })
     if (!existing) {
       return Response.json({ error: 'Product not found' }, { status: 404 })
     }
+
+    const baseline = await ensureProductBaseline(existing)
 
     const updateData: Record<string, unknown> = {}
     if (name !== undefined) {
@@ -36,6 +39,10 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     }
     if (description !== undefined) updateData.description = description || null
     if (price !== undefined) updateData.price = parseFloat(price)
+    if (costPrice !== undefined) updateData.costPrice = parseFloat(costPrice) || 0
+    if (lowStockThreshold !== undefined && lowStockThreshold !== '') {
+      updateData.lowStockThreshold = parseInt(lowStockThreshold)
+    }
     if (image !== undefined) updateData.image = image || null
     if (categoryId !== undefined) updateData.categoryId = categoryId
     if (featured !== undefined) updateData.featured = featured
@@ -55,6 +62,10 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       include: { category: true },
     })
 
+    if (stock !== undefined) {
+      await recordStockChange(id, baseline.stock, parseInt(stock))
+    }
+
     return Response.json({ ...product, images: JSON.parse(product.images || '[]') })
   } catch (error) {
     console.error('Update product error:', error)
@@ -73,6 +84,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
 
     // Delete order items referencing this product first
     await db.orderItem.deleteMany({ where: { productId: id } })
+    await db.stockMovement.deleteMany({ where: { productId: id } })
 
     await db.product.delete({ where: { id } })
 

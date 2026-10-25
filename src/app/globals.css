@@ -119,6 +119,10 @@
   --sidebar-ring: oklch(0.55 0.13 155);
 }
 
+html {
+  font-size: 18.5px;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -209,6 +213,44 @@
   );
 }
 
+/* Darker frozen toolbar */
+.royal-toolbar-bg {
+  background: linear-gradient(
+    180deg,
+    oklch(0.07 0.035 158) 0%,
+    oklch(0.11 0.045 155) 55%,
+    oklch(0.15 0.055 152) 100%
+  );
+}
+
+/* Shop category bar must stick to the viewport, not a transformed parent */
+.shop-view {
+  transform: none !important;
+}
+
+[dir="rtl"] body {
+  font-family: var(--font-arabic), sans-serif;
+}
+
+[dir="rtl"] .font-serif {
+  font-family: var(--font-arabic-serif), serif;
+}
+
+[dir="rtl"] .text-left {
+  text-align: right;
+}
+
+[dir="rtl"] .text-right {
+  text-align: left;
+}
+
+[dir="rtl"] .lucide-arrow-right,
+[dir="rtl"] .lucide-arrow-left,
+[dir="rtl"] .lucide-chevron-right,
+[dir="rtl"] .lucide-chevron-left {
+  transform: scaleX(-1);
+}
+
 .royal-glass {
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
@@ -254,7 +296,7 @@
 
 /* Royal gold gradient text */
 .gold-text {
-  background: linear-gradient(135deg, oklch(0.78 0.12 75), oklch(0.62 0.10 155), oklch(0.78 0.12 75));
+  background: linear-gradient(135deg, oklch(0.66 0.13 70), oklch(0.50 0.09 148), oklch(0.66 0.13 70));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;

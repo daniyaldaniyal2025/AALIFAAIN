@@ -9,6 +9,7 @@ import {
   Product,
   Session,
   SiteEvent,
+  StockMovement,
   User,
   VerificationToken,
 } from '@/lib/models'
@@ -421,4 +422,5 @@ export const db = {
   verificationToken: createDelegate(VerificationToken),
   siteEvent: createDelegate(SiteEvent),
   coupon: createDelegate(Coupon),
+  stockMovement: createDelegate(StockMovement),
 }

@@ -40,19 +40,42 @@ export async function GET() {
     })
 
     const ordersForRevenue = await db.order.findMany({
-      select: { createdAt: true, total: true },
+      select: { id: true, createdAt: true, total: true, customerName: true, status: true },
       orderBy: { createdAt: 'desc' },
     })
 
-    const monthlyMap = new Map<string, number>()
-    for (const order of ordersForRevenue) {
-      const month = toMonthKey(new Date(order.createdAt))
-      monthlyMap.set(month, (monthlyMap.get(month) || 0) + order.total)
+    const countedOrders = ordersForRevenue.filter(
+      order => order.status !== 'cancelled' && order.status !== 'refunded',
+    )
+
+    const monthlyMap = new Map<string, { revenue: number; orders: number }>()
+    const dailyMapRevenue = new Map<string, { revenue: number; orders: number }>()
+    for (const order of countedOrders) {
+      const created = new Date(order.createdAt)
+      const month = toMonthKey(created)
+      const day = toDayKey(created)
+      const monthBucket = monthlyMap.get(month) || { revenue: 0, orders: 0 }
+      monthBucket.revenue += order.total
+      monthBucket.orders += 1
+      monthlyMap.set(month, monthBucket)
+      const dayBucket = dailyMapRevenue.get(day) || { revenue: 0, orders: 0 }
+      dayBucket.revenue += order.total
+      dayBucket.orders += 1
+      dailyMapRevenue.set(day, dayBucket)
     }
     const monthlyRevenue = Array.from(monthlyMap.entries())
-      .map(([month, revenue]) => ({ month, revenue }))
-      .sort((a, b) => b.month.localeCompare(a.month))
-      .slice(0, 12)
+      .map(([month, value]) => ({ month, revenue: value.revenue, orders: value.orders }))
+      .sort((a, b) => a.month.localeCompare(b.month))
+    const dailyRevenue = Array.from(dailyMapRevenue.entries())
+      .map(([day, value]) => ({ day, revenue: value.revenue, orders: value.orders }))
+      .sort((a, b) => a.day.localeCompare(b.day))
+    const revenueOrders = countedOrders.map(order => ({
+      id: order.id,
+      createdAt: order.createdAt,
+      total: order.total,
+      customerName: order.customerName,
+      status: order.status,
+    }))
 
     const paymentStats = await db.order.groupBy({
       by: ['paymentStatus'],
@@ -162,6 +185,8 @@ export async function GET() {
       categories: stats[4],
       recentOrders,
       monthlyRevenue,
+      dailyRevenue,
+      revenueOrders,
       paymentStats: paymentStats.map(ps => ({
         status: ps.paymentStatus,
         count: ps._count.paymentStatus,
