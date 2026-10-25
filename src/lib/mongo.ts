@@ -10,13 +10,16 @@ export async function connectMongo() {
     throw new Error('MONGO_URI is not set')
   }
 
-  if (mongoose.connection.readyState >= 1) {
+  if (mongoose.connection.readyState === 1) {
     return mongoose
   }
 
   if (!globalForMongo.mongoosePromise) {
     globalForMongo.mongoosePromise = mongoose.connect(uri, {
       bufferCommands: false,
+    }).catch(error => {
+      globalForMongo.mongoosePromise = undefined
+      throw error
     })
   }
 

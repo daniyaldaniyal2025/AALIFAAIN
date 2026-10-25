@@ -7,6 +7,10 @@ import { useCartStore, useWishlistStore, useCouponStore, useAppStore } from '@/s
 import { useAuthStore } from '@/stores/auth-store'
 import { getSocket, disconnectSocket, emitProductChange, emitCategoryChange } from '@/lib/realtime'
 import { formatPrice, countries, getCountryByCode } from '@/lib/currency'
+import { useI18n } from '@/lib/i18n'
+import { productMatchesQuery } from '@/lib/catalog-ar'
+import { AdminCustomers } from '@/components/admin/customers-view'
+import { AdminFinance } from '@/components/admin/finance-view'
 import { isValidPhone } from '@/lib/phone'
 import { PhoneInput } from '@/components/phone-input'
 import { trackEvent, PAGE_LABELS } from '@/lib/analytics'
@@ -34,7 +38,7 @@ import {
   LogOut, UserCircle, UserPlus, Lock, AlertCircle, Check,
   EyeOff, Save, Calendar, Pencil, ToggleLeft, ToggleRight, ImagePlus, Upload, ImageIcon,
   Info, MessageSquare, Send, Award, Target, Leaf, Handshake, Building2,
-  Wallet, Banknote, Smartphone, Receipt, CircleDollarSign, RotateCcw, Tag, FolderOpen, UsersRound, Shield
+  Wallet, Banknote, Smartphone, Receipt, CircleDollarSign, RotateCcw, Tag, FolderOpen, UsersRound, Shield, History
 } from 'lucide-react'
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
@@ -65,6 +69,12 @@ interface Product {
   featured: boolean
   discount: number
   stock: number
+  costPrice?: number
+  lowStockThreshold?: number
+  initialStock?: number
+  totalRestocked?: number
+  totalSold?: number
+  totalAdjusted?: number
   status: string
   createdAt: string
   category: Category
@@ -122,7 +132,9 @@ interface AdminStats {
   ordersByStatus: { status: string; _count: { status: number } }[]
   categories: { id: string; name: string; slug: string; _count: { products: number } }[]
   recentOrders: Order[]
-  monthlyRevenue: { month: string; revenue: number }[]
+  monthlyRevenue: { month: string; revenue: number; orders?: number }[]
+  dailyRevenue?: { day: string; revenue: number; orders: number }[]
+  revenueOrders?: { id: string; createdAt: string; total: number; customerName: string; status: string }[]
   paymentStats: { status: string; count: number; total: number }[]
   paymentMethodStats: { method: string; count: number; total: number }[]
   paidRevenue: number
@@ -165,6 +177,18 @@ function hasPermission(permStr: string | undefined, section: string, action: str
 
 function isSuperAdmin(adminRole?: string): boolean {
   return adminRole === 'super_admin'
+}
+
+function stockLevel(stock: number, threshold = 10): 'out' | 'low' | 'ok' {
+  if (stock <= 0) return 'out'
+  if (stock <= threshold) return 'low'
+  return 'ok'
+}
+
+function stockToneClass(level: 'out' | 'low' | 'ok') {
+  if (level === 'out') return 'bg-red-100 text-red-700'
+  if (level === 'low') return 'bg-yellow-100 text-yellow-800'
+  return 'bg-emerald-50 text-emerald-800'
 }
 
 // ─── Animation Variants ─────────────────────────────────────────────────────
@@ -330,6 +354,7 @@ function WishlistButton({
 }) {
   const { toggleItem, isInWishlist } = useWishlistStore()
   const { toast } = useToast()
+  const { t, pn } = useI18n()
   const saved = isInWishlist(product.id)
 
   const handleToggle = (e: React.MouseEvent) => {
@@ -341,10 +366,10 @@ function WishlistButton({
       image: product.image || undefined,
     })
     toast({
-      title: added ? 'Added to wishlist' : 'Removed from wishlist',
+      title: added ? t('Added to wishlist') : t('Removed from wishlist'),
       description: added
-        ? `${product.name} saved to your favorites.`
-        : `${product.name} removed from your wishlist.`,
+        ? `${pn(product.name)} ${t('saved to your favorites.')}`
+        : `${pn(product.name)} ${t('removed from your wishlist.')}`,
     })
   }
 
@@ -357,7 +382,7 @@ function WishlistButton({
         onClick={handleToggle}
       >
         <Heart className={`size-5 ${saved ? 'fill-current' : ''}`} />
-        {saved ? 'Saved' : 'Add to Wishlist'}
+        {saved ? t('Saved') : t('Add to Wishlist')}
       </Button>
     )
   }
@@ -368,7 +393,7 @@ function WishlistButton({
       variant="secondary"
       className={`size-8 rounded-full ${saved ? 'bg-primary text-primary-foreground hover:bg-primary/90' : ''} ${className}`}
       onClick={handleToggle}
-      aria-label={saved ? 'Remove from wishlist' : 'Add to wishlist'}
+      aria-label={saved ? t('Remove from wishlist') : t('Add to wishlist')}
     >
       <Heart className={`size-3.5 ${saved ? 'fill-current' : ''}`} />
     </Button>
@@ -380,6 +405,7 @@ function CouponInput({ subtotal, countryCode }: { subtotal: number; countryCode:
   const [loading, setLoading] = useState(false)
   const { applied, setApplied, clearApplied } = useCouponStore()
   const { toast } = useToast()
+  const { t } = useI18n()
 
   const handleApply = async () => {
     const trimmed = code.trim()
@@ -450,18 +476,46 @@ function CouponInput({ subtotal, countryCode }: { subtotal: number; countryCode:
           onKeyDown={(e) => e.key === 'Enter' && handleApply()}
         />
         <Button variant="outline" onClick={handleApply} disabled={loading || !code.trim()} className="shrink-0">
-          {loading ? <RefreshCw className="size-4 animate-spin" /> : 'Apply'}
+          {loading ? <RefreshCw className="size-4 animate-spin" /> : t('Apply')}
         </Button>
       </div>
-      <p className="text-[11px] text-muted-foreground">Try <span className="font-mono text-primary">WELCOME10</span> for 10% off</p>
+      <p className="text-xs text-muted-foreground">{t('Try')} <span className="font-mono text-primary">WELCOME10</span> {t('for 10% off')}</p>
     </div>
   )
 }
 
 // ─── Header Component ────────────────────────────────────────────────────────
 
+function LanguageSwitch({ className = '' }: { className?: string }) {
+  const { language, setLanguage } = useI18n()
+
+  return (
+    <div
+      className={`flex items-center rounded-md border border-white/30 overflow-hidden text-sm font-semibold shrink-0 ${className}`}
+      role="group"
+      aria-label="Language"
+    >
+      <button
+        type="button"
+        onClick={() => setLanguage('en')}
+        className={`h-10 px-2.5 cursor-pointer ${language === 'en' ? 'bg-gold text-green-950' : 'text-white hover:bg-white/10'}`}
+      >
+        EN
+      </button>
+      <button
+        type="button"
+        onClick={() => setLanguage('ar')}
+        className={`h-10 px-2.5 cursor-pointer ${language === 'ar' ? 'bg-gold text-green-950' : 'text-white hover:bg-white/10'}`}
+      >
+        عربي
+      </button>
+    </div>
+  )
+}
+
 function Header() {
   const { currentView, setView, selectedCountry, setSelectedCountry } = useAppStore()
+  const { t } = useI18n()
   const { items } = useCartStore()
   const wishlistItems = useWishlistStore(state => state.items)
   const totalItems = items.reduce((s, i) => s + i.quantity, 0)
@@ -481,13 +535,13 @@ function Header() {
   const countryInfo = getCountryByCode(selectedCountry)
 
   const navItems = [
-    { label: 'Home', view: 'home' as const, icon: Home },
-    { label: 'Shop', view: 'products' as const, icon: Store },
-    { label: 'About', view: 'about' as const, icon: Info },
-    { label: 'Contact', view: 'contact' as const, icon: MessageSquare },
-    { label: 'Wishlist', view: 'wishlist' as const, icon: Heart, badge: totalWishlistItems },
-    { label: 'Cart', view: 'cart' as const, icon: ShoppingCart, badge: totalItems },
-    ...(user?.role === 'admin' ? [{ label: 'Admin', view: 'admin' as const, icon: BarChart3 }] : []),
+    { label: t('Home'), view: 'home' as const, icon: Home },
+    { label: t('Shop'), view: 'products' as const, icon: Store },
+    { label: t('About'), view: 'about' as const, icon: Info },
+    { label: t('Contact'), view: 'contact' as const, icon: MessageSquare },
+    { label: t('Wishlist'), view: 'wishlist' as const, icon: Heart, badge: totalWishlistItems },
+    { label: t('Cart'), view: 'cart' as const, icon: ShoppingCart, badge: totalItems },
+    ...(user?.role === 'admin' ? [{ label: t('Admin'), view: 'admin' as const, icon: BarChart3 }] : []),
   ]
 
   const handleNav = (view: 'home' | 'products' | 'cart' | 'wishlist' | 'admin' | 'about' | 'contact') => {
@@ -502,34 +556,33 @@ function Header() {
   }
 
   return (
-    <header className="sticky top-0 z-50 relative royal-hero-bg">
-      <div className="absolute inset-0 bg-black/20 pointer-events-none" />
-      <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-gold/40 to-transparent" />
+    <header dir="ltr" className="fixed inset-x-0 top-0 z-50 royal-toolbar-bg shadow-lg shadow-black/30">
+      <div className="absolute inset-0 bg-black/35 pointer-events-none" />
+      <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-gold/50 to-transparent" />
 
-      <div className="relative max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between text-white">
+      <div className="relative max-w-7xl mx-auto px-4 sm:px-6 h-20 flex items-center justify-between text-white">
         {/* Logo */}
-        <button onClick={() => handleNav('home')} className="flex items-center gap-2 group cursor-pointer">
-          <img src="/alifaain-logo.jpg" alt="Alifaain" className="h-9 w-9 rounded-full object-cover ring-2 ring-gold/30 group-hover:ring-gold/60 transition-all cursor-pointer" />
-          <span className="font-serif text-xl font-bold gold-text hidden sm:inline">Alif Aain</span>
+        <button onClick={() => handleNav('home')} className="flex items-center gap-3 group cursor-pointer">
+          <img src="/alifaain-logo.jpg" alt="Alifaain" className="h-12 w-12 sm:h-14 sm:w-14 rounded-full object-cover ring-2 ring-gold/40 group-hover:ring-gold/70 transition-all cursor-pointer" />
+          <span className="font-serif text-2xl lg:text-3xl font-bold gold-text hidden sm:inline">Alif Aain</span>
         </button>
 
         {/* Desktop Nav */}
-        <nav className="hidden md:flex items-center gap-1">
+        <nav className="hidden lg:flex items-center gap-1">
           {navItems.map(item => {
             const isActive = currentView.view === item.view || (item.view === 'admin' && currentView.view.startsWith('admin'))
             return (
               <Button
                 key={item.view}
                 variant="ghost"
-                size="sm"
                 onClick={() => handleNav(item.view)}
-                className={`relative ${
+                className={`relative h-10 px-3 text-base ${
                   isActive
                     ? 'bg-gold text-green-950 hover:bg-gold/90 hover:text-green-950'
-                    : 'text-white/80 hover:bg-white/10 hover:text-white'
+                    : 'text-white hover:bg-white/10 hover:text-white'
                 }`}
               >
-                <item.icon className="size-4" />
+                <item.icon className="size-5" />
                 <span>{item.label}</span>
                 {item.badge != null && item.badge > 0 && (
                   <motion.span
@@ -550,7 +603,7 @@ function Header() {
         <div className="flex items-center gap-2">
           {/* Country Selector */}
           <Select value={selectedCountry} onValueChange={setSelectedCountry}>
-            <SelectTrigger className="w-auto gap-1 border border-white/15 bg-white/5 text-white h-8 text-xs px-2 hover:bg-white/10 cursor-pointer">
+            <SelectTrigger className="w-auto gap-1 border border-white/20 bg-white/5 text-white h-10 text-sm px-2.5 hover:bg-white/10 cursor-pointer">
               <span>{countryInfo.flag}</span>
               <span className="hidden sm:inline">{countryInfo.currency}</span>
             </SelectTrigger>
@@ -559,7 +612,7 @@ function Header() {
                 <SelectItem key={c.code} value={c.code}>
                   <span className="flex items-center gap-2">
                     <span>{c.flag}</span>
-                    <span>{c.name}</span>
+                    <span>{t(c.name)}</span>
                     <span className="text-muted-foreground">({c.currency})</span>
                   </span>
                 </SelectItem>
@@ -572,10 +625,10 @@ function Header() {
             <Button
               variant="ghost"
               size="icon"
-              className="size-8 text-white/80 hover:bg-white/10 hover:text-white"
+              className="size-10 text-white hover:bg-white/10 hover:text-white"
               onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
             >
-              {theme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
+              {theme === 'dark' ? <Sun className="size-5" /> : <Moon className="size-5" />}
             </Button>
           )}
 
@@ -587,7 +640,7 @@ function Header() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="gap-2 h-8 text-white/80 hover:bg-white/10 hover:text-white"
+                    className="gap-2 h-10 text-base text-white hover:bg-white/10 hover:text-white"
                     onClick={() => setUserMenuOpen(!userMenuOpen)}
                   >
                     <div className="size-7 rounded-full bg-white/10 ring-1 ring-white/15 flex items-center justify-center overflow-hidden">
@@ -597,7 +650,7 @@ function Header() {
                         <span className="text-xs font-bold text-gold">{user.name.charAt(0).toUpperCase()}</span>
                       )}
                     </div>
-                    <span className="hidden sm:inline text-xs max-w-[80px] truncate">{user.name}</span>
+                    <span className="hidden sm:inline text-sm max-w-[100px] truncate">{user.name}</span>
                   </Button>
                   <AnimatePresence>
                     {userMenuOpen && (
@@ -641,7 +694,7 @@ function Header() {
                               className="w-full justify-start gap-2 text-sm text-white/80 hover:bg-white/10 hover:text-white"
                               onClick={() => { setView({ view: 'profile' }); setUserMenuOpen(false) }}
                             >
-                              <UserCircle className="size-4" /> My Profile
+                              <UserCircle className="size-4" /> {t('My Profile')}
                             </Button>
                             {user.role === 'admin' && (
                               <Button
@@ -650,7 +703,7 @@ function Header() {
                                 className="w-full justify-start gap-2 text-sm text-white/80 hover:bg-white/10 hover:text-white"
                                 onClick={() => { setView({ view: 'admin' }); setUserMenuOpen(false) }}
                               >
-                                <BarChart3 className="size-4" /> Admin Dashboard
+                                <BarChart3 className="size-4" /> {t('Admin Dashboard')}
                               </Button>
                             )}
                             <Separator className="my-1 bg-white/10" />
@@ -660,7 +713,7 @@ function Header() {
                               className="w-full justify-start gap-2 text-sm text-red-300 hover:text-red-200 hover:bg-red-500/10"
                               onClick={handleSignOut}
                             >
-                              <LogOut className="size-4" /> Sign Out
+                              <LogOut className="size-4" /> {t('Sign Out')}
                             </Button>
                           </div>
                         </motion.div>
@@ -671,11 +724,11 @@ function Header() {
               ) : (
                 <Button
                   size="sm"
-                  className="gap-1.5 h-8 bg-gold text-green-950 hover:bg-gold/90 font-semibold"
+                  className="gap-1.5 h-10 px-3 text-sm bg-gold text-green-950 hover:bg-gold/90 font-semibold"
                   onClick={() => setView({ view: 'signin' })}
                 >
-                  <LogIn className="size-3.5" />
-                  <span className="hidden sm:inline">Sign In</span>
+                  <LogIn className="size-4" />
+                  <span className="hidden sm:inline">{t('Sign In')}</span>
                 </Button>
               )}
             </>
@@ -684,12 +737,12 @@ function Header() {
           {/* Mobile Menu */}
           <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
             <SheetTrigger asChild>
-              <Button variant="ghost" size="icon" className="md:hidden size-8 text-white/80 hover:bg-white/10 hover:text-white">
-                <Menu className="size-4" />
+              <Button variant="ghost" size="icon" className="lg:hidden size-10 text-white hover:bg-white/10 hover:text-white">
+                <Menu className="size-5" />
               </Button>
             </SheetTrigger>
             <SheetContent side="right" className="w-72">
-              <SheetTitle className="font-serif text-lg gold-text mb-4">Navigation</SheetTitle>
+              <SheetTitle className="font-serif text-xl gold-text mb-4">{t('Navigation')}</SheetTitle>
               <nav className="flex flex-col gap-2 mt-4">
                 {navItems.map(item => (
                   <Button
@@ -722,30 +775,32 @@ function Header() {
                       </div>
                     </div>
                     <Button variant="ghost" className="justify-start gap-3" onClick={() => { setView({ view: 'profile' }); setMobileOpen(false) }}>
-                      <UserCircle className="size-4" /> My Profile
+                      <UserCircle className="size-4" /> {t('My Profile')}
                     </Button>
                     {user.role === 'admin' && (
                       <Button variant="ghost" className="justify-start gap-3" onClick={() => { setView({ view: 'admin' }); setMobileOpen(false) }}>
-                        <BarChart3 className="size-4" /> Admin Dashboard
+                        <BarChart3 className="size-4" /> {t('Admin Dashboard')}
                       </Button>
                     )}
                     <Button variant="ghost" className="justify-start gap-3 text-destructive hover:text-destructive" onClick={handleSignOut}>
-                      <LogOut className="size-4" /> Sign Out
+                      <LogOut className="size-4" /> {t('Sign Out')}
                     </Button>
                   </>
                 ) : (
                   <>
                     <Button variant="default" className="justify-start gap-3" onClick={() => { setView({ view: 'signin' }); setMobileOpen(false) }}>
-                      <LogIn className="size-4" /> Sign In
+                      <LogIn className="size-4" /> {t('Sign In')}
                     </Button>
                     <Button variant="outline" className="justify-start gap-3" onClick={() => { setView({ view: 'signup' }); setMobileOpen(false) }}>
-                      <UserPlus className="size-4" /> Create Account
+                      <UserPlus className="size-4" /> {t('Create Account')}
                     </Button>
                   </>
                 )}
               </nav>
             </SheetContent>
           </Sheet>
+
+          <LanguageSwitch />
         </div>
       </div>
     </header>
@@ -756,23 +811,24 @@ function Header() {
 
 function Footer() {
   const { setView } = useAppStore()
+  const { t } = useI18n()
   const currentYear = new Date().getFullYear()
 
   const quickLinks = [
-    { label: 'Home', view: 'home' as const },
-    { label: 'Shop All', view: 'products' as const },
-    { label: 'About Us', view: 'about' as const },
-    { label: 'Contact', view: 'contact' as const },
-    { label: 'Wishlist', view: 'wishlist' as const },
-    { label: 'Cart', view: 'cart' as const },
+    { label: t('Home'), view: 'home' as const },
+    { label: t('Shop All'), view: 'products' as const },
+    { label: t('About Us'), view: 'about' as const },
+    { label: t('Contact'), view: 'contact' as const },
+    { label: t('Wishlist'), view: 'wishlist' as const },
+    { label: t('Cart'), view: 'cart' as const },
   ]
 
   const categories = [
-    { label: 'Morocco', slug: 'morocco' },
-    { label: 'Korea', slug: 'korea' },
-    { label: 'Supplements', slug: 'supplements' },
-    { label: 'Clothing', slug: 'clothing' },
-    { label: 'Fragrances', slug: 'fragrances' },
+    { label: t('Morocco'), slug: 'morocco' },
+    { label: t('Korea'), slug: 'korea' },
+    { label: t('Supplements'), slug: 'supplements' },
+    { label: t('Clothing'), slug: 'clothing' },
+    { label: t('Fragrances'), slug: 'fragrances' },
   ]
 
   return (
@@ -797,11 +853,11 @@ function Footer() {
                 />
                 <div className="text-left">
                   <span className="font-serif text-2xl font-bold gold-text block">Alif Aain</span>
-                  <span className="text-[11px] uppercase tracking-[0.2em] text-white/50">Flagship of Standards</span>
+                  <span className="text-xs uppercase tracking-[0.2em] text-white/50">{t('Flagship of Standards')}</span>
                 </div>
               </button>
-              <p className="text-sm text-white/70 leading-relaxed">
-                Curated beauty, wellness, knowledge, and style from around the globe — where heritage meets refinement.
+              <p className="text-base text-white/70 leading-relaxed">
+                {t('Curated beauty, wellness, knowledge, and style from around the globe — where heritage meets refinement.')}
               </p>
             </div>
 
@@ -811,7 +867,7 @@ function Footer() {
                 className="bg-gold text-green-950 hover:bg-gold/90 font-semibold gap-2"
                 onClick={() => setView({ view: 'products' })}
               >
-                Explore Collection <ArrowRight className="size-4" />
+                {t('Explore Collection')} <ArrowRight className="size-4" />
               </Button>
               <Button
                 size="lg"
@@ -819,7 +875,7 @@ function Footer() {
                 className="bg-transparent border-white/30 text-white hover:bg-white/10 hover:text-white shadow-none"
                 onClick={() => setView({ view: 'contact' })}
               >
-                Get in Touch
+                {t('Get in Touch')}
               </Button>
             </div>
           </div>
@@ -828,13 +884,13 @@ function Footer() {
         {/* Links grid */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-8 lg:gap-12 py-12 lg:py-14">
           <div>
-            <h4 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gold mb-5">Navigate</h4>
+            <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-gold mb-5">{t('Navigate')}</h4>
             <ul className="space-y-3">
               {quickLinks.map(link => (
                 <li key={link.view}>
                   <button
                     onClick={() => setView({ view: link.view })}
-                    className="text-sm text-white/70 hover:text-white transition-colors inline-flex items-center gap-1.5 group cursor-pointer"
+                    className="text-base text-white/70 hover:text-white transition-colors inline-flex items-center gap-1.5 group cursor-pointer"
                   >
                     <ChevronRight className="size-3.5 text-gold/60 group-hover:translate-x-0.5 transition-transform" />
                     {link.label}
@@ -845,13 +901,13 @@ function Footer() {
           </div>
 
           <div>
-            <h4 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gold mb-5">Categories</h4>
+            <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-gold mb-5">{t('Categories')}</h4>
             <ul className="space-y-3">
               {categories.map(cat => (
                 <li key={cat.slug}>
                   <button
                     onClick={() => setView({ view: 'products', params: { category: cat.slug } })}
-                    className="text-sm text-white/70 hover:text-white transition-colors inline-flex items-center gap-1.5 group cursor-pointer"
+                    className="text-base text-white/70 hover:text-white transition-colors inline-flex items-center gap-1.5 group cursor-pointer"
                   >
                     <ChevronRight className="size-3.5 text-gold/60 group-hover:translate-x-0.5 transition-transform" />
                     {cat.label}
@@ -862,12 +918,12 @@ function Footer() {
           </div>
 
           <div className="col-span-2 md:col-span-1">
-            <h4 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gold mb-5">Contact</h4>
+            <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-gold mb-5">{t('Contact')}</h4>
             <ul className="space-y-4">
               <li>
                 <a
                   href={`mailto:${CONTACT_EMAIL}`}
-                  className="flex items-start gap-3 text-sm text-white/70 hover:text-white transition-colors group"
+                  className="flex items-start gap-3 text-base text-white/70 hover:text-white transition-colors group"
                 >
                   <span className="size-9 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center shrink-0 group-hover:border-gold/30 transition-colors">
                     <Mail className="size-4 text-gold" />
@@ -878,7 +934,7 @@ function Footer() {
               <li>
                 <a
                   href={`tel:${CONTACT_PHONE.replace(/\s/g, '')}`}
-                  className="flex items-start gap-3 text-sm text-white/70 hover:text-white transition-colors group"
+                  className="flex items-start gap-3 text-base text-white/70 hover:text-white transition-colors group"
                 >
                   <span className="size-9 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center shrink-0 group-hover:border-gold/30 transition-colors">
                     <Phone className="size-4 text-gold" />
@@ -886,19 +942,19 @@ function Footer() {
                   <span className="pt-1.5">{CONTACT_PHONE}</span>
                 </a>
               </li>
-              <li className="flex items-start gap-3 text-sm text-white/70">
+              <li className="flex items-start gap-3 text-base text-white/70">
                 <span className="size-9 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center shrink-0">
                   <MapPin className="size-4 text-gold" />
                 </span>
-                <span className="pt-1.5">Riyadh, Saudi Arabia</span>
+                <span className="pt-1.5">{t('Dammam, Saudi Arabia')}</span>
               </li>
             </ul>
           </div>
 
           <div className="col-span-2 md:col-span-1">
-            <h4 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gold mb-5">Follow Us</h4>
-            <p className="text-sm text-white/60 mb-4 leading-relaxed">
-              Join us for new arrivals, beauty insights, and exclusive offers.
+            <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-gold mb-5">{t('Follow Us')}</h4>
+            <p className="text-base text-white/60 mb-4 leading-relaxed">
+              {t('Join us for new arrivals, beauty insights, and exclusive offers.')}
             </p>
             <div className="flex flex-wrap gap-2">
               {SOCIAL_LINKS.map(social => (
@@ -918,10 +974,10 @@ function Footer() {
         {/* Bottom bar */}
         <div className="py-6 border-t border-white/10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <p className="text-xs text-white/50">
-            © {currentYear} Alif Aain. All rights reserved.
+            © {currentYear} Alif Aain. {t('All rights reserved.')}
           </p>
-          <p className="text-xs text-white/40 italic font-serif">
-            Curated with Purpose. Inspired by the World. Defined by Excellence.
+          <p className="text-sm text-white/40 italic font-serif">
+            {t('Curated with Purpose. Inspired by the World. Defined by Excellence.')}
           </p>
         </div>
       </div>
@@ -981,6 +1037,7 @@ const promoBanners = [
 function PromoBannerSlider() {
   const [current, setCurrent] = useState(0)
   const { setView, setSelectedCategory } = useAppStore()
+  const { t } = useI18n()
 
   // Auto-advance slider
   useEffect(() => {
@@ -998,7 +1055,7 @@ function PromoBannerSlider() {
   }
 
   return (
-    <section className="py-8 sm:py-12">
+    <section className="py-4 sm:py-6">
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
         <div className="relative overflow-hidden rounded-2xl min-h-[280px] sm:min-h-[340px] lg:min-h-[400px]">
           <AnimatePresence mode="wait">
@@ -1029,7 +1086,7 @@ function PromoBannerSlider() {
                     transition={{ delay: 0.2 }}
                   >
                     <Badge className="bg-white/20 text-white border-0 text-sm mb-4 backdrop-blur-sm">
-                      {promoBanners[current].emoji} {promoBanners[current].subtitle}
+                      {promoBanners[current].emoji} {t(promoBanners[current].subtitle)}
                     </Badge>
                   </motion.div>
                   <motion.h2
@@ -1038,7 +1095,7 @@ function PromoBannerSlider() {
                     transition={{ delay: 0.3 }}
                     className="font-serif text-3xl sm:text-4xl lg:text-5xl font-bold mb-4 text-white"
                   >
-                    {promoBanners[current].title}
+                    {t(promoBanners[current].title)}
                   </motion.h2>
                   <motion.p
                     initial={{ opacity: 0, y: 20 }}
@@ -1046,7 +1103,7 @@ function PromoBannerSlider() {
                     transition={{ delay: 0.4 }}
                     className="text-white/80 text-base sm:text-lg mb-6 max-w-md"
                   >
-                    {promoBanners[current].description}
+                    {t(promoBanners[current].description)}
                   </motion.p>
                   <motion.div
                     initial={{ opacity: 0, y: 20 }}
@@ -1058,7 +1115,7 @@ function PromoBannerSlider() {
                       className="bg-white text-gray-900 hover:bg-white/90 font-semibold gap-2"
                       onClick={() => handleCta(promoBanners[current].category)}
                     >
-                      {promoBanners[current].cta} <ArrowRight className="size-4" />
+                      {t(promoBanners[current].cta)} <ArrowRight className="size-4" />
                     </Button>
                   </motion.div>
                 </div>
@@ -1107,6 +1164,7 @@ function HomeView({ products, categories: apiCategories }: { products: Product[]
   const { addItem } = useCartStore()
   const { selectedCountry } = useAppStore()
   const { toast } = useToast()
+  const { t, tc, cdesc, pn } = useI18n()
 
   const featuredProducts = useMemo(() => products.filter(p => p.featured && p.status === 'active').slice(0, 8), [products])
 
@@ -1136,13 +1194,13 @@ function HomeView({ products, categories: apiCategories }: { products: Product[]
 
   const handleAddToCart = (product: Product) => {
     addItem({ productId: product.id, name: product.name, price: product.price, quantity: 1, image: product.image || undefined })
-    toast({ title: 'Added to cart', description: `${product.name} has been added to your cart.` })
+    toast({ title: t('Added to cart'), description: `${pn(product.name)} ${t('has been added to your cart.')}` })
   }
 
   return (
     <div>
       {/* Hero Section */}
-      <section className="relative overflow-hidden py-20 sm:py-28 lg:py-36 royal-hero-bg text-white -mt-px">
+      <section className="relative overflow-hidden py-10 sm:py-14 lg:py-16 royal-hero-bg text-white -mt-px">
         <div className="absolute inset-0">
           <img src="/images/hero/banner.png" alt="Alifaain Beauty" className="w-full h-full object-cover opacity-40" />
           <div className="absolute inset-0 bg-gradient-to-br from-emerald-950/60 via-green-950/50 to-teal-950/55" />
@@ -1153,26 +1211,26 @@ function HomeView({ products, categories: apiCategories }: { products: Product[]
 
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 text-center">
           <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
-            <Badge className="mb-6 px-4 py-1.5 text-sm font-medium bg-gold/15 text-gold border border-gold/25 hover:bg-gold/20">
-              <Sparkles className="size-3.5 mr-1.5" /> Premium Beauty & Skincare
+            <Badge className="mb-3 px-4 py-1.5 text-sm font-medium bg-gold/15 text-gold border border-gold/25 hover:bg-gold/20">
+              <Sparkles className="size-3.5 mr-1.5" /> {t('Premium Beauty & Skincare')}
             </Badge>
           </motion.div>
           <motion.h1
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.1 }}
-            className="font-serif text-4xl sm:text-5xl lg:text-7xl font-bold mb-6 leading-tight"
+            className="font-serif text-4xl sm:text-5xl lg:text-6xl font-bold mb-3 leading-tight"
           >
-            Discover Beauty,{' '}
-            <span className="gold-text">Redefined</span>
+            {t('Discover Beauty,')}{' '}
+            <span className="gold-text">{t('Redefined')}</span>
           </motion.h1>
           <motion.p
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.2 }}
-            className="text-white/75 text-lg sm:text-xl max-w-2xl mx-auto mb-8"
+            className="text-white/75 text-lg sm:text-xl max-w-2xl mx-auto mb-5"
           >
-            Authentic Moroccan traditions meet innovative Korean skincare. Experience the best of both worlds.
+            {t('Authentic Moroccan traditions meet innovative Korean skincare. Experience the best of both worlds.')}
           </motion.p>
           <motion.div
             initial={{ opacity: 0, y: 30 }}
@@ -1181,7 +1239,7 @@ function HomeView({ products, categories: apiCategories }: { products: Product[]
             className="flex flex-col sm:flex-row gap-4 justify-center"
           >
             <Button size="lg" className="text-base px-8 bg-gold text-green-950 hover:bg-gold/90 font-semibold border-0" onClick={() => setView({ view: 'products' })}>
-              Shop Now <ArrowRight className="size-4 ml-1" />
+              {t('Shop Now')} <ArrowRight className="size-4 ml-1" />
             </Button>
             <Button
               size="lg"
@@ -1191,7 +1249,7 @@ function HomeView({ products, categories: apiCategories }: { products: Product[]
                 document.getElementById('categories-section')?.scrollIntoView({ behavior: 'smooth' })
               }}
             >
-              Explore Categories
+              {t('Explore Categories')}
             </Button>
           </motion.div>
         </div>
@@ -1201,11 +1259,11 @@ function HomeView({ products, categories: apiCategories }: { products: Product[]
       <PromoBannerSlider />
 
       {/* Categories Section */}
-      <section id="categories-section" className="py-16 sm:py-20">
+      <section id="categories-section" className="py-8 sm:py-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
-          <motion.div {...fadeIn} viewport={{ once: true }} className="text-center mb-12">
-            <h2 className="font-serif text-3xl sm:text-4xl font-bold mb-4">Shop by Category</h2>
-            <p className="text-muted-foreground max-w-xl mx-auto">Explore our curated collections from around the world</p>
+          <motion.div {...fadeIn} viewport={{ once: true }} className="text-center mb-6">
+            <h2 className="font-serif text-3xl sm:text-4xl font-bold mb-2">{t('Shop by Category')}</h2>
+            <p className="text-muted-foreground max-w-xl mx-auto">{t('Explore our curated collections from around the world')}</p>
           </motion.div>
 
           <motion.div variants={staggerContainer} initial="initial" whileInView="animate" viewport={{ once: true }}
@@ -1220,16 +1278,16 @@ function HomeView({ products, categories: apiCategories }: { products: Product[]
                   }`}
                   disabled={cat.comingSoon}
                 >
-                  <div className={`relative bg-gradient-to-br ${getGradientForCategory(cat.slug)} p-6 sm:p-8 text-white overflow-hidden`}>
+                  <div className={`relative bg-gradient-to-br ${getGradientForCategory(cat.slug)} p-4 sm:p-6 text-white overflow-hidden`}>
                     <img src={`/images/categories/${cat.slug}.png`} alt={cat.name} className="absolute inset-0 w-full h-full object-cover opacity-30 mix-blend-overlay" />
                     <div className="absolute top-2 right-2 text-3xl opacity-30">{categoryIcons[cat.slug]}</div>
                     <span className="text-2xl mb-2 block">{categoryIcons[cat.slug]}</span>
-                    <h3 className="font-serif font-bold text-lg mb-1">{cat.name}</h3>
-                    <p className="text-white/80 text-xs mb-2 line-clamp-2">{cat.description}</p>
+                    <h3 className="font-serif font-bold text-lg mb-1">{tc(cat.slug, cat.name)}</h3>
+                    <p className="text-white/80 text-sm mb-2 line-clamp-2">{cdesc(cat.slug, cat.description)}</p>
                     {cat.comingSoon ? (
-                      <Badge variant="secondary" className="bg-white/20 text-white border-0 text-[10px]">Coming Soon</Badge>
+                      <Badge variant="secondary" className="bg-white/20 text-white border-0 text-[10px]">{t('Coming Soon')}</Badge>
                     ) : (
-                      <span className="text-xs text-white/70">{cat.count} products</span>
+                      <span className="text-sm text-white/70">{cat.count} {t('products')}</span>
                     )}
                   </div>
                 </button>
@@ -1241,14 +1299,14 @@ function HomeView({ products, categories: apiCategories }: { products: Product[]
 
       {/* Featured Products Section */}
       {featuredProducts.length > 0 && (
-        <section className="py-16 sm:py-20 bg-secondary/30">
+        <section className="py-8 sm:py-10 bg-secondary/30">
           <div className="max-w-7xl mx-auto px-4 sm:px-6">
-            <motion.div {...fadeIn} viewport={{ once: true }} className="text-center mb-10">
-              <Badge variant="secondary" className="mb-4 px-4 py-1.5 text-sm font-medium">
-                <Star className="size-3.5 mr-1.5" /> Curated Selection
+            <motion.div {...fadeIn} viewport={{ once: true }} className="text-center mb-6">
+              <Badge variant="secondary" className="mb-3 px-4 py-1.5 text-sm font-medium">
+                <Star className="size-3.5 mr-1.5" /> {t('Curated Selection')}
               </Badge>
-              <h2 className="font-serif text-3xl sm:text-4xl font-bold mb-3">Featured Products</h2>
-              <p className="text-muted-foreground max-w-lg mx-auto">Hand-picked favorites just for you — our most loved products</p>
+              <h2 className="font-serif text-3xl sm:text-4xl font-bold mb-2">{t('Featured Products')}</h2>
+              <p className="text-muted-foreground max-w-lg mx-auto">{t('Hand-picked favorites just for you — our most loved products')}</p>
             </motion.div>
 
             <motion.div
@@ -1267,7 +1325,7 @@ function HomeView({ products, categories: apiCategories }: { products: Product[]
 
             <div className="mt-10 text-center">
               <Button variant="outline" size="lg" onClick={() => setView({ view: 'products' })} className="gap-2">
-                View All Products <ArrowRight className="size-4" />
+                {t('View All Products')} <ArrowRight className="size-4" />
               </Button>
             </div>
           </div>
@@ -1276,14 +1334,14 @@ function HomeView({ products, categories: apiCategories }: { products: Product[]
 
       {/* Discounted Products Section */}
       {discountedProducts.length > 0 && (
-        <section className="py-16 sm:py-20">
+        <section className="py-8 sm:py-10">
           <div className="max-w-7xl mx-auto px-4 sm:px-6">
-            <motion.div {...fadeIn} viewport={{ once: true }} className="text-center mb-10">
-              <Badge className="mb-4 px-4 py-1.5 text-sm font-medium bg-primary text-gold border-0 hover:bg-primary/90">
-                <Sparkles className="size-3.5 mr-1.5" /> Hot Deals
+            <motion.div {...fadeIn} viewport={{ once: true }} className="text-center mb-6">
+              <Badge className="mb-3 px-4 py-1.5 text-sm font-medium bg-primary text-gold border-0 hover:bg-primary/90">
+                <Sparkles className="size-3.5 mr-1.5" /> {t('Hot Deals')}
               </Badge>
-              <h2 className="font-serif text-3xl sm:text-4xl font-bold mb-3">Special Offers</h2>
-              <p className="text-muted-foreground max-w-lg mx-auto">Don't miss out — limited time discounts on premium beauty products</p>
+              <h2 className="font-serif text-3xl sm:text-4xl font-bold mb-2">{t('Special Offers')}</h2>
+              <p className="text-muted-foreground max-w-lg mx-auto">{t("Don't miss out — limited time discounts on premium beauty products")}</p>
             </motion.div>
 
             <motion.div
@@ -1302,7 +1360,7 @@ function HomeView({ products, categories: apiCategories }: { products: Product[]
 
             <div className="mt-10 text-center">
               <Button variant="outline" size="lg" onClick={() => setView({ view: 'products' })} className="gap-2">
-                View All Deals <ArrowRight className="size-4" />
+                {t('View All Deals')} <ArrowRight className="size-4" />
               </Button>
             </div>
           </div>
@@ -1310,21 +1368,21 @@ function HomeView({ products, categories: apiCategories }: { products: Product[]
       )}
 
       {/* Why Choose Us */}
-      <section className="py-16 sm:py-20">
+      <section className="py-8 sm:py-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
-          <motion.div {...fadeIn} viewport={{ once: true }} className="text-center mb-12">
-            <h2 className="font-serif text-3xl sm:text-4xl font-bold mb-4">Why Choose Alifaain?</h2>
-            <p className="text-muted-foreground max-w-xl mx-auto">We deliver excellence in every aspect of your shopping experience</p>
+          <motion.div {...fadeIn} viewport={{ once: true }} className="text-center mb-6">
+            <h2 className="font-serif text-3xl sm:text-4xl font-bold mb-2">{t('Why Choose Alifaain?')}</h2>
+            <p className="text-muted-foreground max-w-xl mx-auto">{t('We deliver excellence in every aspect of your shopping experience')}</p>
           </motion.div>
 
           <motion.div variants={staggerContainer} initial="initial" whileInView="animate" viewport={{ once: true }}
             className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6"
           >
             {[
-              { icon: ShieldCheck, title: 'Authentic Products', desc: '100% genuine products sourced directly from trusted suppliers.' },
-              { icon: Star, title: 'Premium Quality', desc: 'Only the finest ingredients and formulations make it to our store.' },
-              { icon: Truck, title: 'Fast Delivery', desc: 'Quick and reliable shipping across Saudi Arabia and beyond.' },
-              { icon: CreditCard, title: 'Secure Payment', desc: 'Safe and encrypted payment processing for your peace of mind.' },
+              { icon: ShieldCheck, title: t('Authentic Products'), desc: t('100% genuine products sourced directly from trusted suppliers.') },
+              { icon: Star, title: t('Premium Quality'), desc: t('Only the finest ingredients and formulations make it to our store.') },
+              { icon: Truck, title: t('Fast Delivery'), desc: t('Quick and reliable shipping across Saudi Arabia and beyond.') },
+              { icon: CreditCard, title: t('Secure Payment'), desc: t('Safe and encrypted payment processing for your peace of mind.') },
             ].map(item => (
               <motion.div key={item.title} variants={staggerItem}>
                 <Card className="text-center h-full hover:shadow-lg transition-shadow duration-300 gradient-border">
@@ -1343,16 +1401,16 @@ function HomeView({ products, categories: apiCategories }: { products: Product[]
       </section>
 
       {/* Newsletter Section */}
-      <section className="py-16 sm:py-20 bg-secondary/30">
+      <section className="py-8 sm:py-10 bg-secondary/30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <motion.div {...fadeIn} viewport={{ once: true }} className="max-w-xl mx-auto text-center">
-            <h2 className="font-serif text-3xl font-bold mb-4">Stay in the Loop</h2>
-            <p className="text-muted-foreground mb-6">Subscribe for exclusive offers, beauty tips, and new arrivals</p>
+            <h2 className="font-serif text-3xl font-bold mb-2">{t('Stay in the Loop')}</h2>
+            <p className="text-muted-foreground mb-4">{t('Subscribe for exclusive offers, beauty tips, and new arrivals')}</p>
             <div className="gradient-border rounded-xl">
               <div className="flex gap-2 p-1.5 bg-card rounded-xl">
-                <Input placeholder="Enter your email" type="email" className="border-0 focus-visible:ring-0" />
+                <Input placeholder={t('Enter your email')} type="email" className="border-0 focus-visible:ring-0" />
                 <Button className="shrink-0">
-                  <Mail className="size-4 mr-2" /> Subscribe
+                  <Mail className="size-4 mr-2" /> {t('Subscribe')}
                 </Button>
               </div>
             </div>
@@ -1370,13 +1428,14 @@ function ProductCard({ product }: { product: Product }) {
   const { addItem } = useCartStore()
   const { selectedCountry } = useAppStore()
   const { toast } = useToast()
+  const { t, tc, pn, pd } = useI18n()
 
   const discountedPrice = product.discount > 0 ? product.price * (1 - product.discount / 100) : product.price
 
   const handleAdd = (e: React.MouseEvent) => {
     e.stopPropagation()
     addItem({ productId: product.id, name: product.name, price: discountedPrice, quantity: 1, image: product.image || undefined })
-    toast({ title: 'Added to cart', description: `${product.name} has been added.` })
+    toast({ title: t('Added to cart'), description: `${pn(product.name)} ${t('has been added.')}` })
   }
 
   return (
@@ -1410,14 +1469,14 @@ function ProductCard({ product }: { product: Product }) {
           )}
           {product.featured && product.discount === 0 && (
             <Badge className="absolute top-2 left-2 bg-white/20 text-white border-0 text-[10px]">
-              <Star className="size-3 mr-0.5" /> Featured
+              <Star className="size-3 mr-0.5" /> {t('Featured')}
             </Badge>
           )}
         </div>
         <CardContent className="p-4">
-          <Badge variant="secondary" className="text-[10px] mb-2">{product.category.name}</Badge>
-          <h3 className="font-semibold text-sm mb-1 line-clamp-1">{product.name}</h3>
-          <p className="text-xs text-muted-foreground line-clamp-2 mb-3">{product.description}</p>
+          <Badge variant="secondary" className="text-[10px] mb-2">{tc(product.category.slug, product.category.name)}</Badge>
+          <h3 className="font-semibold text-base mb-1 line-clamp-1">{pn(product.name)}</h3>
+          <p className="text-xs text-muted-foreground line-clamp-2 mb-3">{pd(product.name, product.description)}</p>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="font-bold text-primary">{formatPrice(discountedPrice, selectedCountry)}</span>
@@ -1425,8 +1484,8 @@ function ProductCard({ product }: { product: Product }) {
                 <span className="text-xs text-muted-foreground line-through">{formatPrice(product.price, selectedCountry)}</span>
               )}
             </div>
-            <Button size="sm" onClick={handleAdd} className="h-7 text-xs">
-              <Plus className="size-3 mr-1" /> Add
+            <Button size="sm" onClick={handleAdd} className="h-8 text-sm">
+              <Plus className="size-3 mr-1" /> {t('Add')}
             </Button>
           </div>
         </CardContent>
@@ -1439,32 +1498,33 @@ function ProductCard({ product }: { product: Product }) {
 
 function AboutView() {
   const { setView } = useAppStore()
+  const { t } = useI18n()
 
   const collectionCategories = [
     {
       icon: Sparkles,
-      title: 'Skincare',
-      desc: 'Authentic organic Moroccan beauty traditions, advanced Korean skincare innovations, and time-honoured Indian formulations rooted in centuries of wellness wisdom.',
+      title: t('Skincare'),
+      desc: t('Authentic organic Moroccan beauty traditions, advanced Korean skincare innovations, and time-honoured Indian formulations rooted in centuries of wellness wisdom.'),
     },
     {
       icon: Heart,
-      title: 'Wellness & Supplements',
-      desc: 'Thoughtfully sourced products designed to support vitality, balance, and overall well-being.',
+      title: t('Wellness & Supplements'),
+      desc: t('Thoughtfully sourced products designed to support vitality, balance, and overall well-being.'),
     },
     {
       icon: Star,
-      title: 'Fragrances',
-      desc: 'Exquisite perfumes that leave a lasting impression and express individuality with elegance.',
+      title: t('Fragrances'),
+      desc: t('Exquisite perfumes that leave a lasting impression and express individuality with elegance.'),
     },
     {
       icon: Package,
-      title: 'Literature',
-      desc: 'Books that educate, inspire, challenge perspectives, and enrich the mind.',
+      title: t('Literature'),
+      desc: t('Books that educate, inspire, challenge perspectives, and enrich the mind.'),
     },
     {
       icon: ShoppingBag,
-      title: 'Fashion & Apparel',
-      desc: 'Carefully selected clothing that embodies sophistication, confidence, and timeless style.',
+      title: t('Fashion & Apparel'),
+      desc: t('Carefully selected clothing that embodies sophistication, confidence, and timeless style.'),
     },
   ]
 
@@ -1484,14 +1544,14 @@ function AboutView() {
             className="max-w-3xl"
           >
             <Badge className="mb-4 bg-primary/90 text-primary-foreground border-0">
-              <Info className="size-3.5 mr-1.5" /> About Us
+              <Info className="size-3.5 mr-1.5" /> {t('About Us')}
             </Badge>
             <h1 className="font-serif text-4xl sm:text-5xl lg:text-6xl font-bold mb-6 text-white leading-tight">
-              Welcome to Alif Aain — Where Timeless Elegance Meets{' '}
-              <span className="gold-text">Modern Discovery</span>
+              {t('Welcome to Alif Aain — Where Timeless Elegance Meets')}{' '}
+              <span className="gold-text">{t('Modern Discovery')}</span>
             </h1>
             <p className="text-white/80 text-lg sm:text-xl mb-4 max-w-2xl">
-              At Alif Aain, we believe that true luxury is not defined by excess, but by discernment.
+              {t('At Alif Aain, we believe that true luxury is not defined by excess, but by discernment.')}
             </p>
           </motion.div>
         </div>
@@ -1519,10 +1579,10 @@ function AboutView() {
               transition={{ duration: 0.5, delay: 0.2 }}
             >
               <Badge variant="secondary" className="mb-4">
-                <Award className="size-3.5 mr-1.5" /> Flagship of Standards
+                <Award className="size-3.5 mr-1.5" /> {t('Flagship of Standards')}
               </Badge>
               <h2 className="font-serif text-3xl sm:text-4xl font-bold mb-6">
-                Curated with Purpose. <span className="gold-text">Inspired by the World.</span>
+                {t('Curated with Purpose.')} <span className="gold-text">{t('Inspired by the World.')}</span>
               </h2>
               <p className="text-muted-foreground mb-4 leading-relaxed">
                 It is found in the thoughtful selection of exceptional products, the appreciation of authentic craftsmanship, and the pursuit of a life lived with intention.
@@ -1538,10 +1598,10 @@ function AboutView() {
               </p>
               <div className="flex flex-wrap gap-4">
                 <Button onClick={() => setView({ view: 'products' })} className="gap-2">
-                  Explore Products <ArrowRight className="size-4" />
+                  {t('Explore Products')} <ArrowRight className="size-4" />
                 </Button>
                 <Button variant="outline" onClick={() => setView({ view: 'contact' })} className="gap-2">
-                  Get in Touch <MessageSquare className="size-4" />
+                  {t('Get in Touch')} <MessageSquare className="size-4" />
                 </Button>
               </div>
             </motion.div>
@@ -1561,10 +1621,10 @@ function AboutView() {
               className="order-2 lg:order-1"
             >
               <Badge variant="secondary" className="mb-4">
-                <Target className="size-3.5 mr-1.5" /> Our Philosophy
+                <Target className="size-3.5 mr-1.5" /> {t('Our Philosophy')}
               </Badge>
               <h2 className="font-serif text-3xl sm:text-4xl font-bold mb-6">
-                Every Product Has a <span className="gold-text">Story Worth Telling</span>
+                {t('Every Product Has a')} <span className="gold-text">{t('Story Worth Telling')}</span>
               </h2>
               <p className="text-muted-foreground mb-4 leading-relaxed">
                 Each item within our collection is chosen with purpose—not only for its quality and effectiveness, but also for the heritage, craftsmanship, and values it represents. Our approach is guided by a commitment to authenticity, excellence, and sophistication, ensuring that every product enriches daily life and transforms ordinary moments into extraordinary experiences.
@@ -1574,9 +1634,9 @@ function AboutView() {
               </p>
               <div className="space-y-4">
                 {[
-                  { icon: ShieldCheck, title: 'Authenticity', desc: 'Every product reflects genuine heritage, craftsmanship, and values.' },
-                  { icon: Award, title: 'Excellence', desc: 'We uphold the highest standards in quality and customer experience.' },
-                  { icon: Sparkles, title: 'Sophistication', desc: 'We curate products that transform everyday moments into something extraordinary.' },
+                  { icon: ShieldCheck, title: t('Authenticity'), desc: t('Every product reflects genuine heritage, craftsmanship, and values.') },
+                  { icon: Award, title: t('Excellence'), desc: t('We uphold the highest standards in quality and customer experience.') },
+                  { icon: Sparkles, title: t('Sophistication'), desc: t('We curate products that transform everyday moments into something extraordinary.') },
                 ].map(item => (
                   <div key={item.title} className="flex items-start gap-4">
                     <div className="size-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
@@ -1611,10 +1671,10 @@ function AboutView() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <motion.div {...fadeIn} viewport={{ once: true }} className="text-center mb-12">
             <Badge variant="secondary" className="mb-4">
-              <Store className="size-3.5 mr-1.5" /> Our Collection
+              <Store className="size-3.5 mr-1.5" /> {t('Our Collection')}
             </Badge>
             <h2 className="font-serif text-3xl sm:text-4xl font-bold mb-4">
-              The Many Facets of <span className="gold-text">Modern Living</span>
+              {t('The Many Facets of')} <span className="gold-text">{t('Modern Living')}</span>
             </h2>
             <p className="text-muted-foreground max-w-2xl mx-auto">
               Our carefully curated selection reflects the many facets of modern living—and this is only the beginning.
@@ -1676,10 +1736,10 @@ function AboutView() {
               transition={{ duration: 0.5, delay: 0.2 }}
             >
               <Badge variant="secondary" className="mb-4">
-                <Handshake className="size-3.5 mr-1.5" /> Our Promise
+                <Handshake className="size-3.5 mr-1.5" /> {t('Our Promise')}
               </Badge>
               <h2 className="font-serif text-3xl sm:text-4xl font-bold mb-6">
-                Excellence Without <span className="gold-text">Compromise</span>
+                {t('Excellence Without')} <span className="gold-text">{t('Compromise')}</span>
               </h2>
               <p className="text-muted-foreground mb-4 leading-relaxed">
                 Every product that bears the Alif Aain name has been thoughtfully vetted and selected to meet the highest standards of excellence.
@@ -1692,10 +1752,10 @@ function AboutView() {
               </p>
               <div className="grid grid-cols-2 gap-4">
                 {[
-                  { icon: Handshake, label: 'Trusted Partners' },
-                  { icon: Award, label: 'Highest Standards' },
-                  { icon: Star, label: 'Expert Curated' },
-                  { icon: ShieldCheck, label: 'Verified Authentic' },
+                  { icon: Handshake, label: t('Trusted Partners') },
+                  { icon: Award, label: t('Highest Standards') },
+                  { icon: Star, label: t('Expert Curated') },
+                  { icon: ShieldCheck, label: t('Verified Authentic') },
                 ].map(item => (
                   <div key={item.label} className="flex items-center gap-2 p-3 rounded-lg bg-background">
                     <item.icon className="size-5 text-primary shrink-0" />
@@ -1717,10 +1777,10 @@ function AboutView() {
             className="max-w-3xl mx-auto text-center"
           >
             <Badge variant="secondary" className="mb-4">
-              <Globe className="size-3.5 mr-1.5" /> Our Vision
+              <Globe className="size-3.5 mr-1.5" /> {t('Our Vision')}
             </Badge>
             <h2 className="font-serif text-3xl sm:text-4xl font-bold mb-6">
-              Where Heritage Meets <span className="gold-text">Innovation</span>
+              {t('Where Heritage Meets')} <span className="gold-text">{t('Innovation')}</span>
             </h2>
             <p className="text-muted-foreground text-lg leading-relaxed mb-8">
               To become a globally trusted destination for discerning individuals seeking the finest products from across the world—where heritage meets innovation, tradition meets modernity, and luxury becomes a way of life.
@@ -1728,12 +1788,12 @@ function AboutView() {
             <div className="space-y-2">
               <p className="font-serif text-2xl sm:text-3xl font-bold gold-text">Alif Aain</p>
               <p className="text-muted-foreground italic">
-                Curated with Purpose. Inspired by the World. Defined by Excellence.
+                {t('Curated with Purpose. Inspired by the World. Defined by Excellence.')}
               </p>
               <p className="text-muted-foreground pt-4 leading-relaxed">
                 Bringing together beauty, wellness, knowledge, and style from around the globe for those who demand nothing less than the exceptional.
               </p>
-              <p className="font-serif text-lg font-semibold pt-2">Alif Aain — Flagship of Standards.</p>
+              <p className="font-serif text-lg font-semibold pt-2">{t('Alif Aain — Flagship of Standards.')}</p>
             </div>
           </motion.div>
         </div>
@@ -1751,7 +1811,7 @@ function AboutView() {
             <div className="absolute inset-0 bg-black/20" />
             <div className="relative z-10">
               <h2 className="font-serif text-3xl sm:text-4xl font-bold text-white mb-4">
-                Discover the Exceptional
+                {t('Discover the Exceptional')}
               </h2>
               <p className="text-white/80 text-lg max-w-xl mx-auto mb-8">
                 Explore our curated collection of beauty, wellness, knowledge, and style from around the globe.
@@ -1762,7 +1822,7 @@ function AboutView() {
                   className="bg-white text-gray-900 hover:bg-white/90 font-semibold gap-2"
                   onClick={() => setView({ view: 'products' })}
                 >
-                  Shop Now <ArrowRight className="size-4" />
+                  {t('Shop Now')} <ArrowRight className="size-4" />
                 </Button>
                 <Button
                   size="lg"
@@ -1770,7 +1830,7 @@ function AboutView() {
                   className="bg-transparent border-white/40 text-white hover:bg-white/10 hover:text-white shadow-none gap-2 dark:bg-transparent dark:border-white/40 dark:hover:bg-white/10"
                   onClick={() => setView({ view: 'contact' })}
                 >
-                  Contact Us <MessageSquare className="size-4" />
+                  {t('Contact Us')} <MessageSquare className="size-4" />
                 </Button>
               </div>
             </div>
@@ -1785,6 +1845,7 @@ function AboutView() {
 
 function ContactView() {
   const { toast } = useToast()
+  const { t } = useI18n()
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -1801,8 +1862,8 @@ function ContactView() {
       setSending(false)
       setFormData({ name: '', email: '', subject: '', message: '' })
       toast({
-        title: 'Message Sent!',
-        description: 'Thank you for reaching out. We\'ll get back to you within 24 hours.',
+        title: t('Message Sent!'),
+        description: t("Thank you for reaching out. We'll get back to you within 24 hours."),
       })
     }, 1500)
   }
@@ -1823,13 +1884,13 @@ function ContactView() {
             className="max-w-2xl"
           >
             <Badge className="mb-4 bg-primary/90 text-primary-foreground border-0">
-              <MessageSquare className="size-3.5 mr-1.5" /> Get in Touch
+              <MessageSquare className="size-3.5 mr-1.5" /> {t('Get in Touch')}
             </Badge>
             <h1 className="font-serif text-4xl sm:text-5xl lg:text-6xl font-bold mb-6 text-white leading-tight">
-              We&apos;d Love to <span className="gold-text">Hear From You</span>
+              {t("We'd Love to")} <span className="gold-text">{t('Hear From You')}</span>
             </h1>
             <p className="text-white/80 text-lg sm:text-xl mb-8 max-w-lg">
-              Whether you have a question about our products, need skincare advice, or just want to say hello — we&apos;re here for you.
+              {t("Whether you have a question about our products, need skincare advice, or just want to say hello — we're here for you.")}
             </p>
           </motion.div>
         </div>
@@ -1848,30 +1909,30 @@ function ContactView() {
             {[
               {
                 icon: Mail,
-                title: 'Email Us',
+                title: t('Email Us'),
                 detail: CONTACT_EMAIL,
-                sub: 'We reply within 24 hours',
+                sub: t('We reply within 24 hours'),
                 color: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
               },
               {
                 icon: Phone,
-                title: 'Call Us',
+                title: t('Call Us'),
                 detail: CONTACT_PHONE,
-                sub: 'Sun–Thu, 9AM–6PM AST',
+                sub: t('Sun–Thu, 06:00–15:00 GMT'),
                 color: 'bg-primary/10 text-primary',
               },
               {
                 icon: MapPin,
-                title: 'Visit Us',
-                detail: 'Riyadh, Saudi Arabia',
-                sub: 'King Fahd Road District',
+                title: t('Visit Us'),
+                detail: t('Dammam, Saudi Arabia'),
+                sub: t('King Fahd Road, Dammam'),
                 color: 'bg-gold/15 text-gold',
               },
               {
                 icon: Clock,
-                title: 'Business Hours',
-                detail: 'Sun–Thu: 9AM–6PM',
-                sub: 'Fri–Sat: Closed',
+                title: t('Business Hours'),
+                detail: t('Sun–Thu: 06:00–15:00 GMT'),
+                sub: t('9:00 AM–6:00 PM Saudi Arabia (GMT+3) · Fri–Sat closed'),
                 color: 'bg-green-500/10 text-green-600 dark:text-green-400',
               },
             ].map(item => (
@@ -1901,14 +1962,14 @@ function ContactView() {
             >
               <Card className="h-full">
                 <CardHeader>
-                  <CardTitle className="font-serif text-2xl">Send Us a Message</CardTitle>
-                  <CardDescription>Fill out the form below and we&apos;ll get back to you as soon as possible.</CardDescription>
+                  <CardTitle className="font-serif text-2xl">{t('Send Us a Message')}</CardTitle>
+                  <CardDescription>{t("Fill out the form below and we'll get back to you as soon as possible.")}</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <form onSubmit={handleSubmit} className="space-y-4">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
-                        <Label htmlFor="contact-name">Your Name</Label>
+                        <Label htmlFor="contact-name">{t('Your Name')}</Label>
                         <Input
                           id="contact-name"
                           placeholder="John Doe"
@@ -1919,7 +1980,7 @@ function ContactView() {
                         />
                       </div>
                       <div>
-                        <Label htmlFor="contact-email">Email Address</Label>
+                        <Label htmlFor="contact-email">{t('Email Address')}</Label>
                         <Input
                           id="contact-email"
                           type="email"
@@ -1932,26 +1993,26 @@ function ContactView() {
                       </div>
                     </div>
                     <div>
-                      <Label htmlFor="contact-subject">Subject</Label>
+                      <Label htmlFor="contact-subject">{t('Subject')}</Label>
                       <Select value={formData.subject} onValueChange={val => setFormData(prev => ({ ...prev, subject: val }))}>
                         <SelectTrigger className="mt-1.5">
-                          <SelectValue placeholder="Select a topic" />
+                          <SelectValue placeholder={t('Select a topic')} />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="general">General Inquiry</SelectItem>
-                          <SelectItem value="product">Product Question</SelectItem>
-                          <SelectItem value="order">Order Support</SelectItem>
-                          <SelectItem value="wholesale">Wholesale Inquiry</SelectItem>
-                          <SelectItem value="partnership">Partnership Opportunity</SelectItem>
-                          <SelectItem value="feedback">Feedback</SelectItem>
+                          <SelectItem value="general">{t('General Inquiry')}</SelectItem>
+                          <SelectItem value="product">{t('Product Question')}</SelectItem>
+                          <SelectItem value="order">{t('Order Support')}</SelectItem>
+                          <SelectItem value="wholesale">{t('Wholesale Inquiry')}</SelectItem>
+                          <SelectItem value="partnership">{t('Partnership Opportunity')}</SelectItem>
+                          <SelectItem value="feedback">{t('Feedback')}</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
                     <div>
-                      <Label htmlFor="contact-message">Message</Label>
+                      <Label htmlFor="contact-message">{t('Message')}</Label>
                       <Textarea
                         id="contact-message"
-                        placeholder="Tell us how we can help..."
+                        placeholder={t('Tell us how we can help...')}
                         value={formData.message}
                         onChange={e => setFormData(prev => ({ ...prev, message: e.target.value }))}
                         required
@@ -1962,11 +2023,11 @@ function ContactView() {
                     <Button type="submit" size="lg" className="w-full gap-2" disabled={sending}>
                       {sending ? (
                         <>
-                          <RefreshCw className="size-4 animate-spin" /> Sending...
+                          <RefreshCw className="size-4 animate-spin" /> {t('Sending...')}
                         </>
                       ) : (
                         <>
-                          <Send className="size-4" /> Send Message
+                          <Send className="size-4" /> {t('Send Message')}
                         </>
                       )}
                     </Button>
@@ -1988,18 +2049,18 @@ function ContactView() {
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent" />
                 <div className="absolute bottom-0 left-0 right-0 p-6 sm:p-8">
                   <Badge className="bg-primary text-primary-foreground border-0 mb-3">
-                    <Building2 className="size-3.5 mr-1.5" /> Our Flagship Store
+                    <Building2 className="size-3.5 mr-1.5" /> {t('Our Flagship Store')}
                   </Badge>
-                  <h3 className="font-serif text-2xl font-bold text-white mb-2">Visit Us in Riyadh</h3>
-                  <p className="text-white/80 text-sm">King Fahd Road, Olaya District, Riyadh, Saudi Arabia</p>
+                  <h3 className="font-serif text-2xl font-bold text-white mb-2">{t('Visit Us in Dammam')}</h3>
+                  <p className="text-white/80 text-base">{t('King Fahd Road, Dammam, Saudi Arabia')}</p>
                 </div>
               </div>
 
               {/* Social Links */}
               <Card className="gradient-border">
                 <CardContent className="p-6">
-                  <h4 className="font-serif font-semibold text-lg mb-4">Follow Us on Social Media</h4>
-                  <p className="text-sm text-muted-foreground mb-4">Stay updated with our latest products, beauty tips, and exclusive offers.</p>
+                  <h4 className="font-serif font-semibold text-lg mb-4">{t('Follow Us on Social Media')}</h4>
+                  <p className="text-base text-muted-foreground mb-4">{t('Stay updated with our latest products, beauty tips, and exclusive offers.')}</p>
                   <div className="flex flex-wrap gap-3">
                     {SOCIAL_LINKS.map(social => (
                       <SocialLinkButton
@@ -2020,12 +2081,12 @@ function ContactView() {
               {/* FAQ Quick Links */}
               <Card>
                 <CardContent className="p-6">
-                  <h4 className="font-serif font-semibold text-lg mb-4">Frequently Asked Questions</h4>
+                  <h4 className="font-serif font-semibold text-lg mb-4">{t('Frequently Asked Questions')}</h4>
                   <div className="space-y-3">
                     {[
-                      { q: 'What are your shipping options?', a: 'Free shipping on orders over 200 SAR across Saudi Arabia.' },
-                      { q: 'Are your products authentic?', a: 'Yes, 100% genuine products sourced directly from trusted suppliers.' },
-                      { q: 'What is your return policy?', a: '30-day hassle-free returns on all unopened products.' },
+                      { q: t('What are your shipping options?'), a: t('Free shipping on orders over 200 SAR across Saudi Arabia.') },
+                      { q: t('Are your products authentic?'), a: t('Yes, 100% genuine products sourced directly from trusted suppliers.') },
+                      { q: t('What is your return policy?'), a: t('30-day hassle-free returns on all unopened products.') },
                     ].map(faq => (
                       <div key={faq.q} className="p-3 rounded-lg bg-secondary/50">
                         <p className="text-sm font-medium mb-1">{faq.q}</p>
@@ -2047,6 +2108,7 @@ function ContactView() {
 
 function ProductsView({ products }: { products: Product[] }) {
   const { selectedCountry, selectedCategory, setSelectedCategory, searchQuery, setSearchQuery } = useAppStore()
+  const { t, tc } = useI18n()
   const [sortBy, setSortBy] = useState('name-asc')
   const [priceRange, setPriceRange] = useState([0, 500])
   const [selectedCats, setSelectedCats] = useState<string[]>(selectedCategory ? [selectedCategory] : [])
@@ -2082,8 +2144,7 @@ function ProductsView({ products }: { products: Product[] }) {
     let result = products.filter(p => p.status === 'active')
 
     if (searchQuery) {
-      const q = searchQuery.toLowerCase()
-      result = result.filter(p => p.name.toLowerCase().includes(q) || p.description?.toLowerCase().includes(q))
+      result = result.filter(p => productMatchesQuery(p.name, p.description, searchQuery))
     }
 
     if (activeCategories.length > 0) {
@@ -2107,89 +2168,87 @@ function ProductsView({ products }: { products: Product[] }) {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
-      <motion.div {...fadeIn}>
-        {/* Page Header with Category Navigation */}
-        <div className="mb-8">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-            <div>
-              <h1 className="font-serif text-3xl sm:text-4xl font-bold mb-1">Shop All</h1>
-              <p className="text-muted-foreground text-sm">Browse our entire collection across all categories</p>
-            </div>
-            <div className="text-sm text-muted-foreground">
-              {filteredProducts.length} product{filteredProducts.length !== 1 ? 's' : ''} found
-            </div>
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
+      <div className="mb-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+          <div>
+            <h1 className="font-serif text-3xl sm:text-4xl font-bold mb-1">{t('Shop All')}</h1>
+            <p className="text-muted-foreground">{t('Browse our entire collection across all categories')}</p>
           </div>
-
-          {/* Horizontal Category Navigation Bar */}
-          <div className="relative -mx-4 sm:-mx-6 px-4 sm:px-6 py-4 bg-card/80 backdrop-blur-sm border-y border-border/50">
-            <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide">
-              {/* All Products Pill */}
-              <motion.button
-                whileHover={{ scale: 1.03 }}
-                whileTap={{ scale: 0.97 }}
-                onClick={() => { setSelectedCategory(null); setSelectedCats([]) }}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-medium whitespace-nowrap transition-all duration-300 shrink-0 ${
-                  activeCategories.length === 0
-                    ? 'bg-primary text-primary-foreground shadow-md shadow-primary/25'
-                    : 'bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                <ShoppingBag className="size-4" />
-                <span>All Products</span>
-                <span className={`text-xs px-1.5 py-0.5 rounded-full ${
-                  activeCategories.length === 0 ? 'bg-primary-foreground/20 text-primary-foreground' : 'bg-muted text-muted-foreground'
-                }`}>
-                  {products.filter(p => p.status === 'active').length}
-                </span>
-              </motion.button>
-
-              <div className="w-px h-8 bg-border/50 shrink-0" />
-
-              {/* Category Pills */}
-              {allCategories.map(cat => {
-                const count = productCountByCategory.get(cat.id) || 0
-                const isComingSoon = cat.status === 'coming_soon'
-                const isActive = activeCategories.includes(cat.slug)
-                return (
-                  <motion.button
-                    key={cat.id}
-                    whileHover={!isComingSoon ? { scale: 1.03 } : {}}
-                    whileTap={!isComingSoon ? { scale: 0.97 } : {}}
-                    onClick={() => { if (!isComingSoon) { setSelectedCategory(cat.slug); setSelectedCats([cat.slug]) } }}
-                    disabled={isComingSoon}
-                    className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-medium whitespace-nowrap transition-all duration-300 shrink-0 ${
-                      isComingSoon
-                        ? 'opacity-40 cursor-not-allowed bg-secondary/50 text-muted-foreground'
-                        : isActive
-                          ? 'bg-primary text-primary-foreground shadow-md shadow-primary/25'
-                          : 'bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground cursor-pointer'
-                    }`}
-                  >
-                    <span className="text-base">{categoryIcons[cat.slug] || '📦'}</span>
-                    <span>{cat.name}</span>
-                    {isComingSoon ? (
-                      <Badge variant="secondary" className="text-[9px] px-1.5 py-0 bg-background/50 text-muted-foreground">Soon</Badge>
-                    ) : (
-                      <span className={`text-xs px-1.5 py-0.5 rounded-full ${
-                        isActive ? 'bg-primary-foreground/20 text-primary-foreground' : 'bg-muted text-muted-foreground'
-                      }`}>
-                        {count}
-                      </span>
-                    )}
-                  </motion.button>
-                )
-              })}
-            </div>
+          <div className="text-base text-muted-foreground">
+            {filteredProducts.length} {filteredProducts.length !== 1 ? t('products found') : t('product found')}
           </div>
         </div>
+      </div>
+
+      {/* Frozen category toolbar */}
+      <div className="sticky top-20 z-40 -mx-4 sm:-mx-6 px-4 sm:px-6 py-3 mb-6 bg-background/95 backdrop-blur-md border-y border-border shadow-sm">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide">
+          <motion.button
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.97 }}
+            onClick={() => { setSelectedCategory(null); setSelectedCats([]) }}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-base font-medium whitespace-nowrap transition-all duration-300 shrink-0 ${
+              activeCategories.length === 0
+                ? 'bg-primary text-primary-foreground shadow-md shadow-primary/25'
+                : 'bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <ShoppingBag className="size-4" />
+            <span>{t('All Products')}</span>
+            <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+              activeCategories.length === 0 ? 'bg-primary-foreground/20 text-primary-foreground' : 'bg-muted text-muted-foreground'
+            }`}>
+              {products.filter(p => p.status === 'active').length}
+            </span>
+          </motion.button>
+
+          <div className="w-px h-8 bg-border/50 shrink-0" />
+
+          {allCategories.map(cat => {
+            const count = productCountByCategory.get(cat.id) || 0
+            const isComingSoon = cat.status === 'coming_soon'
+            const isActive = activeCategories.includes(cat.slug)
+            return (
+              <motion.button
+                key={cat.id}
+                whileHover={!isComingSoon ? { scale: 1.03 } : {}}
+                whileTap={!isComingSoon ? { scale: 0.97 } : {}}
+                onClick={() => { if (!isComingSoon) { setSelectedCategory(cat.slug); setSelectedCats([cat.slug]) } }}
+                disabled={isComingSoon}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-base font-medium whitespace-nowrap transition-all duration-300 shrink-0 ${
+                  isComingSoon
+                    ? 'opacity-40 cursor-not-allowed bg-secondary/50 text-muted-foreground'
+                    : isActive
+                      ? 'bg-primary text-primary-foreground shadow-md shadow-primary/25'
+                      : 'bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground cursor-pointer'
+                }`}
+              >
+                <span className="text-base">{categoryIcons[cat.slug] || '📦'}</span>
+                <span>{tc(cat.slug, cat.name)}</span>
+                {isComingSoon ? (
+                  <Badge variant="secondary" className="text-[10px] px-1.5 py-0 bg-background/50 text-muted-foreground">{t('Soon')}</Badge>
+                ) : (
+                  <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+                    isActive ? 'bg-primary-foreground/20 text-primary-foreground' : 'bg-muted text-muted-foreground'
+                  }`}>
+                    {count}
+                  </span>
+                )}
+              </motion.button>
+            )
+          })}
+        </div>
+      </div>
+
+      <motion.div {...fadeIn}>
 
         {/* Top Bar */}
         <div className="flex flex-col sm:flex-row gap-4 mb-6">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
             <Input
-              placeholder="Search products..."
+              placeholder={t('Search products...')}
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               className="pl-9"
@@ -2198,13 +2257,13 @@ function ProductsView({ products }: { products: Product[] }) {
           <div className="flex gap-2">
             <Select value={sortBy} onValueChange={setSortBy}>
               <SelectTrigger className="w-40">
-                <SelectValue placeholder="Sort by" />
+                <SelectValue placeholder={t('Sort by')} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="name-asc">Name A-Z</SelectItem>
-                <SelectItem value="name-desc">Name Z-A</SelectItem>
-                <SelectItem value="price-asc">Price: Low-High</SelectItem>
-                <SelectItem value="price-desc">Price: High-Low</SelectItem>
+                <SelectItem value="name-asc">{t('Name A-Z')}</SelectItem>
+                <SelectItem value="name-desc">{t('Name Z-A')}</SelectItem>
+                <SelectItem value="price-asc">{t('Price: Low-High')}</SelectItem>
+                <SelectItem value="price-desc">{t('Price: High-Low')}</SelectItem>
               </SelectContent>
             </Select>
             <Button variant="outline" size="icon" className="lg:hidden" onClick={() => setShowFilters(!showFilters)}>
@@ -2219,23 +2278,23 @@ function ProductsView({ products }: { products: Product[] }) {
             <Card>
               <CardContent className="p-4 space-y-6">
                 <div>
-                  <h4 className="font-semibold text-sm mb-3">Categories</h4>
+                  <h4 className="font-semibold mb-3">{t('Categories')}</h4>
                   <div className="space-y-2">
-                    <label className="flex items-center gap-2 cursor-pointer text-sm">
+                    <label className="flex items-center gap-2 cursor-pointer text-base">
                       <Checkbox checked={activeCategories.length === 0} onCheckedChange={() => { setSelectedCategory(null); setSelectedCats([]) }} />
-                      <span>🛍️ All Products</span>
+                      <span>🛍️ {t('All Products')}</span>
                     </label>
                     {allCategories.map(cat => {
                       const isComingSoon = cat.status === 'coming_soon'
                       return (
-                        <label key={cat.id} className={`flex items-center gap-2 text-sm ${isComingSoon ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+                        <label key={cat.id} className={`flex items-center gap-2 text-base ${isComingSoon ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
                           <Checkbox
                             checked={selectedCats.includes(cat.slug)}
                             onCheckedChange={() => { if (!isComingSoon) toggleCat(cat.slug) }}
                             disabled={isComingSoon}
                           />
-                          <span>{categoryIcons[cat.slug] || '📦'} {cat.name}</span>
-                          {isComingSoon && <Badge variant="secondary" className="text-[9px] ml-auto py-0 px-1.5">Soon</Badge>}
+                          <span>{categoryIcons[cat.slug] || '📦'} {tc(cat.slug, cat.name)}</span>
+                          {isComingSoon && <Badge variant="secondary" className="text-[10px] ml-auto py-0 px-1.5">{t('Soon')}</Badge>}
                         </label>
                       )
                     })}
@@ -2243,7 +2302,7 @@ function ProductsView({ products }: { products: Product[] }) {
                 </div>
                 <Separator />
                 <div>
-                  <h4 className="font-semibold text-sm mb-3">Price Range (SAR)</h4>
+                  <h4 className="font-semibold mb-3">{t('Price Range (SAR)')}</h4>
                   <Slider value={priceRange} onValueChange={setPriceRange} min={0} max={500} step={10} className="mt-2" />
                   <div className="flex justify-between text-xs text-muted-foreground mt-2">
                     <span>{priceRange[0]}</span>
@@ -2252,7 +2311,7 @@ function ProductsView({ products }: { products: Product[] }) {
                 </div>
                 <Separator />
                 <Button variant="ghost" size="sm" className="w-full" onClick={() => { setSelectedCategory(null); setSelectedCats([]); setPriceRange([0, 500]); setSearchQuery('') }}>
-                  Clear Filters
+                  {t('Clear Filters')}
                 </Button>
               </CardContent>
             </Card>
@@ -2263,10 +2322,10 @@ function ProductsView({ products }: { products: Product[] }) {
             {filteredProducts.length === 0 ? (
               <div className="text-center py-16">
                 <Package className="size-12 text-muted-foreground mx-auto mb-4" />
-                <h3 className="font-serif text-xl font-semibold mb-2">No products found</h3>
-                <p className="text-muted-foreground mb-4">Try adjusting your filters or search query.</p>
+                <h3 className="font-serif text-xl font-semibold mb-2">{t('No products found')}</h3>
+                <p className="text-muted-foreground mb-4">{t('Try adjusting your filters or search query.')}</p>
                 <Button variant="outline" onClick={() => { setSelectedCats([]); setPriceRange([0, 500]); setSearchQuery('') }}>
-                  Clear Filters
+                  {t('Clear Filters')}
                 </Button>
               </div>
             ) : (
@@ -2288,13 +2347,14 @@ function ProductGridCard({ product }: { product: Product }) {
   const { addItem } = useCartStore()
   const { selectedCountry } = useAppStore()
   const { toast } = useToast()
+  const { t, tc, pn, pd } = useI18n()
 
   const discountedPrice = product.discount > 0 ? product.price * (1 - product.discount / 100) : product.price
 
   const handleAdd = (e: React.MouseEvent) => {
     e.stopPropagation()
     addItem({ productId: product.id, name: product.name, price: discountedPrice, quantity: 1, image: product.image || undefined })
-    toast({ title: 'Added to cart', description: `${product.name} has been added.` })
+    toast({ title: t('Added to cart'), description: `${pn(product.name)} ${t('has been added.')}` })
   }
 
   return (
@@ -2315,7 +2375,7 @@ function ProductGridCard({ product }: { product: Product }) {
           </div>
           <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
             <Button size="sm" onClick={handleAdd} className="h-8">
-              <ShoppingCart className="size-3.5 mr-1" /> Add to Cart
+              <ShoppingCart className="size-3.5 mr-1" /> {t('Add to Cart')}
             </Button>
           </div>
           {product.discount > 0 && (
@@ -2325,17 +2385,20 @@ function ProductGridCard({ product }: { product: Product }) {
           )}
           {product.featured && product.discount === 0 && (
             <Badge className="absolute top-2 left-2 bg-white/20 text-white border-0 text-[10px]">
-              <Star className="size-3 mr-0.5" /> Featured
+              <Star className="size-3 mr-0.5" /> {t('Featured')}
             </Badge>
           )}
-          {product.stock < 10 && (
-            <Badge variant="destructive" className="absolute top-2 right-12 text-[10px]">Low Stock</Badge>
+          {stockLevel(product.stock, product.lowStockThreshold ?? 10) === 'out' && (
+            <Badge className="absolute top-2 right-12 text-[10px] bg-red-600 text-white border-0">{t('Out of Stock')}</Badge>
+          )}
+          {stockLevel(product.stock, product.lowStockThreshold ?? 10) === 'low' && (
+            <Badge className="absolute top-2 right-12 text-[10px] bg-yellow-400 text-yellow-950 border-0">{t('Low Stock')}</Badge>
           )}
         </div>
         <CardContent className="p-4">
-          <Badge variant="secondary" className="text-[10px] mb-2">{product.category.name}</Badge>
-          <h3 className="font-semibold mb-1 line-clamp-1">{product.name}</h3>
-          <p className="text-xs text-muted-foreground line-clamp-2 mb-3">{product.description}</p>
+          <Badge variant="secondary" className="text-xs mb-2">{tc(product.category.slug, product.category.name)}</Badge>
+          <h3 className="font-semibold text-base mb-1 line-clamp-1">{pn(product.name)}</h3>
+          <p className="text-xs text-muted-foreground line-clamp-2 mb-3">{pd(product.name, product.description)}</p>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="font-bold text-primary text-lg">{formatPrice(discountedPrice, selectedCountry)}</span>
@@ -2359,6 +2422,7 @@ function ProductDetailView({ products }: { products: Product[] }) {
   const { currentView, setView, selectedCountry } = useAppStore()
   const { addItem } = useCartStore()
   const { toast } = useToast()
+  const { t, tc, pn, pd } = useI18n()
   const [quantity, setQuantity] = useState(1)
   const [selectedImageIdx, setSelectedImageIdx] = useState(0)
 
@@ -2388,8 +2452,8 @@ function ProductDetailView({ products }: { products: Product[] }) {
   if (!product) {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-16 text-center">
-        <h2 className="font-serif text-2xl font-bold mb-4">Product Not Found</h2>
-        <Button onClick={() => setView({ view: 'products' })}>Browse Products</Button>
+        <h2 className="font-serif text-2xl font-bold mb-4">{t('Product Not Found')}</h2>
+        <Button onClick={() => setView({ view: 'products' })}>{t('Browse Products')}</Button>
       </div>
     )
   }
@@ -2397,7 +2461,7 @@ function ProductDetailView({ products }: { products: Product[] }) {
   const handleAddToCart = () => {
     const finalPrice = product.discount > 0 ? product.price * (1 - product.discount / 100) : product.price
     addItem({ productId: product.id, name: product.name, price: finalPrice, quantity, image: product.image || undefined })
-    toast({ title: 'Added to cart', description: `${quantity}x ${product.name} added to your cart.` })
+    toast({ title: t('Added to cart'), description: `${quantity}x ${pn(product.name)} ${t('added to your cart.')}` })
   }
 
   return (
@@ -2405,7 +2469,7 @@ function ProductDetailView({ products }: { products: Product[] }) {
       <motion.div {...fadeIn}>
         {/* Breadcrumb */}
         <button onClick={() => setView({ view: 'products' })} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-primary mb-6 transition-colors">
-          <ArrowLeft className="size-4" /> Back to Products
+          <ArrowLeft className="size-4" /> {t('Back to Products')}
         </button>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-16">
@@ -2461,9 +2525,9 @@ function ProductDetailView({ products }: { products: Product[] }) {
                 <WishlistButton product={product} className="size-10 bg-white/90 hover:bg-white dark:bg-black/50 dark:hover:bg-black/70" />
               </div>
               <div className="absolute top-4 left-4 flex gap-2 pointer-events-none">
-                <Badge className="bg-white/20 text-white border-0">{product.category.name}</Badge>
-                {product.discount > 0 && <Badge className="bg-primary text-gold border-0 font-bold">-{product.discount}% OFF</Badge>}
-                {product.featured && product.discount === 0 && <Badge className="bg-white/20 text-white border-0"><Star className="size-3 mr-1" />Featured</Badge>}
+                <Badge className="bg-white/20 text-white border-0">{tc(product.category.slug, product.category.name)}</Badge>
+                {product.discount > 0 && <Badge className="bg-primary text-gold border-0 font-bold">-{product.discount}% {t('OFF')}</Badge>}
+                {product.featured && product.discount === 0 && <Badge className="bg-white/20 text-white border-0"><Star className="size-3 mr-1" />{t('Featured')}</Badge>}
               </div>
             </div>
             {/* Thumbnail Strip */}
@@ -2486,16 +2550,16 @@ function ProductDetailView({ products }: { products: Product[] }) {
 
           {/* Details */}
           <div className="flex flex-col">
-            <Badge variant="secondary" className="w-fit mb-3">{categoryIcons[product.category.slug]} {product.category.name}</Badge>
-            <h1 className="font-serif text-3xl sm:text-4xl font-bold mb-4">{product.name}</h1>
-            <p className="text-muted-foreground leading-relaxed mb-6 whitespace-pre-line">{product.description}</p>
+            <Badge variant="secondary" className="w-fit mb-3">{categoryIcons[product.category.slug]} {tc(product.category.slug, product.category.name)}</Badge>
+            <h1 className="font-serif text-3xl sm:text-4xl font-bold mb-4">{pn(product.name)}</h1>
+            <p className="text-muted-foreground leading-relaxed mb-6 whitespace-pre-line">{pd(product.name, product.description)}</p>
 
             <div className="mb-6">
               {product.discount > 0 ? (
                 <div className="flex items-center gap-3">
                   <span className="text-3xl font-bold text-primary">{formatPrice(product.price * (1 - product.discount / 100), selectedCountry)}</span>
                   <span className="text-lg text-muted-foreground line-through">{formatPrice(product.price, selectedCountry)}</span>
-                  <Badge className="bg-primary text-gold border-0">Save {product.discount}%</Badge>
+                  <Badge className="bg-primary text-gold border-0">{t('Save')} {product.discount}%</Badge>
                 </div>
               ) : (
                 <span className="text-3xl font-bold text-primary">{formatPrice(product.price, selectedCountry)}</span>
@@ -2505,11 +2569,11 @@ function ProductDetailView({ products }: { products: Product[] }) {
             <div className="flex items-center gap-2 mb-2 text-sm text-muted-foreground">
               <Package className="size-4" />
               {product.stock > 0 ? (
-                <span className={product.stock < 10 ? 'text-destructive' : ''}>
-                  {product.stock < 10 ? `Only ${product.stock} left in stock` : 'In Stock'}
+                <span className={stockLevel(product.stock, product.lowStockThreshold ?? 10) === 'low' ? 'text-yellow-700 font-medium' : ''}>
+                  {stockLevel(product.stock, product.lowStockThreshold ?? 10) === 'low' ? `${t('Only')} ${product.stock} ${t('left in stock')}` : t('In Stock')}
                 </span>
               ) : (
-                <span className="text-destructive">Out of Stock</span>
+                <span className="text-red-600 font-medium">{t('Out of Stock')}</span>
               )}
             </div>
 
@@ -2517,7 +2581,7 @@ function ProductDetailView({ products }: { products: Product[] }) {
 
             {/* Quantity & Add to Cart */}
             <div className="flex items-center gap-4 mb-6">
-              <span className="text-sm font-medium">Quantity:</span>
+              <span className="text-sm font-medium">{t('Quantity:')}</span>
               <div className="flex items-center border rounded-lg">
                 <Button variant="ghost" size="icon" className="size-10" onClick={() => setQuantity(Math.max(1, quantity - 1))}>
                   <Minus className="size-4" />
@@ -2531,7 +2595,7 @@ function ProductDetailView({ products }: { products: Product[] }) {
 
             <div className="flex flex-col sm:flex-row gap-3">
               <Button size="lg" className="flex-1 sm:flex-none px-12 text-base" onClick={handleAddToCart} disabled={product.stock === 0}>
-                <ShoppingCart className="size-5 mr-2" /> Add to Cart
+                <ShoppingCart className="size-5 mr-2" /> {t('Add to Cart')}
               </Button>
               <WishlistButton product={product} variant="inline" className="flex-1 sm:flex-none" />
             </div>
@@ -2541,7 +2605,7 @@ function ProductDetailView({ products }: { products: Product[] }) {
         {/* Related Products */}
         {relatedProducts.length > 0 && (
           <div>
-            <h2 className="font-serif text-2xl font-bold mb-6">Related Products</h2>
+            <h2 className="font-serif text-2xl font-bold mb-6">{t('Related Products')}</h2>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               {relatedProducts.map(p => (
                 <ProductGridCard key={p.id} product={p} />
@@ -2558,8 +2622,11 @@ function ProductDetailView({ products }: { products: Product[] }) {
 
 function CartView() {
   const { items, removeItem, updateQuantity, totalPrice } = useCartStore()
+  const { addItem: addToWishlist, isInWishlist } = useWishlistStore()
   const { applied: appliedCoupon } = useCouponStore()
   const { setView, selectedCountry } = useAppStore()
+  const { toast } = useToast()
+  const { t, pn } = useI18n()
   const total = totalPrice()
   const couponDiscount = appliedCoupon?.discountAmount ?? 0
   const shipping = total >= 200 ? 0 : 25
@@ -2570,10 +2637,10 @@ function CartView() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-16 text-center">
         <motion.div {...fadeIn}>
           <ShoppingBag className="size-16 text-muted-foreground mx-auto mb-4" />
-          <h2 className="font-serif text-2xl font-bold mb-2">Your Cart is Empty</h2>
-          <p className="text-muted-foreground mb-6">Looks like you haven&apos;t added anything yet.</p>
+          <h2 className="font-serif text-2xl font-bold mb-2">{t('Your Cart is Empty')}</h2>
+          <p className="text-muted-foreground mb-6">{t("Looks like you haven't added anything yet.")}</p>
           <Button onClick={() => setView({ view: 'products' })}>
-            Continue Shopping <ArrowRight className="size-4 ml-1" />
+            {t('Continue Shopping')} <ArrowRight className="size-4 ml-1" />
           </Button>
         </motion.div>
       </div>
@@ -2583,7 +2650,7 @@ function CartView() {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
       <motion.div {...fadeIn}>
-        <h1 className="font-serif text-3xl font-bold mb-8">Shopping Cart</h1>
+        <h1 className="font-serif text-3xl font-bold mb-8">{t('Shopping Cart')}</h1>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Cart Items */}
@@ -2602,7 +2669,7 @@ function CartView() {
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold mb-1 truncate">{item.name}</h3>
+                      <h3 className="font-semibold mb-1 truncate">{pn(item.name)}</h3>
                       <p className="text-primary font-bold">{formatPrice(item.price, selectedCountry)}</p>
                       <div className="flex items-center gap-3 mt-2">
                         <div className="flex items-center border rounded-md">
@@ -2615,7 +2682,28 @@ function CartView() {
                           </Button>
                         </div>
                         <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => removeItem(item.productId)}>
-                          <Trash2 className="size-4 mr-1" /> Remove
+                          <Trash2 className="size-4 mr-1" /> {t('Remove')}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className={isInWishlist(item.productId) ? 'text-primary' : ''}
+                          onClick={() => {
+                            if (isInWishlist(item.productId)) return
+                            addToWishlist({
+                              productId: item.productId,
+                              name: item.name,
+                              price: item.price,
+                              image: item.image,
+                            })
+                            toast({
+                              title: t('Added to wishlist'),
+                              description: `${pn(item.name)} ${t('saved to your favorites.')}`,
+                            })
+                          }}
+                        >
+                          <Heart className={`size-4 mr-1 ${isInWishlist(item.productId) ? 'fill-current' : ''}`} />
+                          {isInWishlist(item.productId) ? t('In Wishlist') : t('Save to Wishlist')}
                         </Button>
                       </div>
                     </div>
@@ -2632,39 +2720,39 @@ function CartView() {
           <div>
             <Card className="sticky top-24">
               <CardHeader>
-                <CardTitle className="font-serif">Order Summary</CardTitle>
+                <CardTitle className="font-serif">{t('Order Summary')}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <CouponInput subtotal={total} countryCode={selectedCountry} />
                 <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Subtotal</span>
+                  <span className="text-muted-foreground">{t('Subtotal')}</span>
                   <span>{formatPrice(total, selectedCountry)}</span>
                 </div>
                 {couponDiscount > 0 && (
                   <div className="flex justify-between text-sm text-primary">
                     <span className="flex items-center gap-1">
-                      <Tag className="size-3.5" /> Coupon ({appliedCoupon?.code})
+                      <Tag className="size-3.5" /> {t('Coupon')} ({appliedCoupon?.code})
                     </span>
                     <span>-{formatPrice(couponDiscount, selectedCountry)}</span>
                   </div>
                 )}
                 <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Shipping</span>
-                  <span>{shipping === 0 ? <span className="text-primary font-medium">Free</span> : formatPrice(shipping, selectedCountry)}</span>
+                  <span className="text-muted-foreground">{t('Shipping')}</span>
+                  <span>{shipping === 0 ? <span className="text-primary font-medium">{t('Free')}</span> : formatPrice(shipping, selectedCountry)}</span>
                 </div>
                 {total < 200 && (
-                  <p className="text-xs text-muted-foreground">Add {formatPrice(200 - total, selectedCountry)} more for free shipping!</p>
+                  <p className="text-xs text-muted-foreground">{t('Add {amount} more for free shipping!', { amount: formatPrice(200 - total, selectedCountry) })}</p>
                 )}
                 <Separator />
                 <div className="flex justify-between font-bold text-lg">
-                  <span>Total</span>
+                  <span>{t('Total')}</span>
                   <span className="text-primary">{formatPrice(orderTotal, selectedCountry)}</span>
                 </div>
                 <Button className="w-full mt-4" size="lg" onClick={() => setView({ view: 'checkout' })}>
-                  Proceed to Checkout
+                  {t('Proceed to Checkout')}
                 </Button>
                 <Button variant="outline" className="w-full" onClick={() => setView({ view: 'products' })}>
-                  Continue Shopping
+                  {t('Continue Shopping')}
                 </Button>
               </CardContent>
             </Card>
@@ -2682,6 +2770,7 @@ function WishlistView({ products }: { products: Product[] }) {
   const { addItem } = useCartStore()
   const { setView, selectedCountry } = useAppStore()
   const { toast } = useToast()
+  const { t, tc, pn } = useI18n()
 
   const handleAddToCart = (item: typeof items[0], product?: Product) => {
     const price = product ? getProductWishlistPrice(product) : item.price
@@ -2692,7 +2781,7 @@ function WishlistView({ products }: { products: Product[] }) {
       quantity: 1,
       image: item.image,
     })
-    toast({ title: 'Added to cart', description: `${item.name} has been added to your cart.` })
+    toast({ title: t('Added to cart'), description: `${pn(item.name)} ${t('has been added to your cart.')}` })
   }
 
   const handleMoveToCart = (item: typeof items[0], product?: Product) => {
@@ -2705,10 +2794,10 @@ function WishlistView({ products }: { products: Product[] }) {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-16 text-center">
         <motion.div {...fadeIn}>
           <Heart className="size-16 text-muted-foreground mx-auto mb-4" />
-          <h2 className="font-serif text-2xl font-bold mb-2">Your Wishlist is Empty</h2>
-          <p className="text-muted-foreground mb-6">Save products you love and come back to them anytime.</p>
+          <h2 className="font-serif text-2xl font-bold mb-2">{t('Your Wishlist is Empty')}</h2>
+          <p className="text-muted-foreground mb-6">{t('Save products you love and come back to them anytime.')}</p>
           <Button onClick={() => setView({ view: 'products' })}>
-            Explore Products <ArrowRight className="size-4 ml-1" />
+            {t('Explore Products')} <ArrowRight className="size-4 ml-1" />
           </Button>
         </motion.div>
       </div>
@@ -2720,11 +2809,11 @@ function WishlistView({ products }: { products: Product[] }) {
       <motion.div {...fadeIn}>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
           <div>
-            <h1 className="font-serif text-3xl font-bold">My Wishlist</h1>
-            <p className="text-muted-foreground text-sm mt-1">{items.length} saved item{items.length !== 1 ? 's' : ''}</p>
+            <h1 className="font-serif text-3xl font-bold">{t('My Wishlist')}</h1>
+            <p className="text-muted-foreground text-sm mt-1">{items.length} {items.length !== 1 ? t('saved items') : t('saved item')}</p>
           </div>
           <Button variant="outline" onClick={() => setView({ view: 'cart' })} className="gap-2">
-            <ShoppingCart className="size-4" /> View Cart
+            <ShoppingCart className="size-4" /> {t('View Cart')}
           </Button>
         </div>
 
@@ -2761,9 +2850,9 @@ function WishlistView({ products }: { products: Product[] }) {
                 </div>
                 <CardContent className="p-4">
                   {product && (
-                    <Badge variant="secondary" className="text-[10px] mb-2">{product.category.name}</Badge>
+                    <Badge variant="secondary" className="text-[10px] mb-2">{tc(product.category.slug, product.category.name)}</Badge>
                   )}
-                  <h3 className="font-semibold mb-1 line-clamp-1">{item.name}</h3>
+                  <h3 className="font-semibold mb-1 line-clamp-1">{pn(item.name)}</h3>
                   <p className="text-primary font-bold mb-4">{formatPrice(price, selectedCountry)}</p>
                   <div className="flex flex-col gap-2">
                     <Button
@@ -2772,7 +2861,7 @@ function WishlistView({ products }: { products: Product[] }) {
                       onClick={() => handleMoveToCart(item, product)}
                       disabled={outOfStock}
                     >
-                      <ShoppingCart className="size-4" /> Move to Cart
+                      <ShoppingCart className="size-4" /> {t('Move to Cart')}
                     </Button>
                     <div className="flex gap-2">
                       <Button
@@ -2782,7 +2871,7 @@ function WishlistView({ products }: { products: Product[] }) {
                         onClick={() => handleAddToCart(item, product)}
                         disabled={outOfStock}
                       >
-                        <Plus className="size-4" /> Add to Cart
+                        <Plus className="size-4" /> {t('Add to Cart')}
                       </Button>
                       <Button
                         size="sm"
@@ -2790,7 +2879,7 @@ function WishlistView({ products }: { products: Product[] }) {
                         className="text-destructive hover:text-destructive"
                         onClick={() => {
                           removeItem(item.productId)
-                          toast({ title: 'Removed', description: `${item.name} removed from wishlist.` })
+                          toast({ title: t('Removed'), description: `${pn(item.name)} ${t('removed from wishlist.')}` })
                         }}
                       >
                         <Trash2 className="size-4" />
@@ -2798,7 +2887,7 @@ function WishlistView({ products }: { products: Product[] }) {
                     </div>
                   </div>
                   {outOfStock && (
-                    <p className="text-xs text-destructive mt-2">Currently out of stock</p>
+                    <p className="text-xs text-destructive mt-2">{t('Currently out of stock')}</p>
                   )}
                 </CardContent>
               </Card>
@@ -2817,6 +2906,7 @@ function CheckoutView() {
   const { applied: appliedCoupon, clearApplied } = useCouponStore()
   const { setView, selectedCountry } = useAppStore()
   const { toast } = useToast()
+  const { t, pn } = useI18n()
   const [step, setStep] = useState<'info' | 'payment' | 'processing' | 'success' | 'failed'>('info')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [orderId, setOrderId] = useState('')
@@ -2938,10 +3028,10 @@ function CheckoutView() {
 
   // Payment method configs
   const paymentMethods = [
-    { id: 'card', label: 'Credit / Debit Card', icon: CreditCard, desc: 'Visa, Mastercard', color: 'from-emerald-800 to-green-900' },
-    { id: 'mada', label: 'Mada', icon: Banknote, desc: 'Saudi debit cards', color: 'from-green-800 to-teal-900' },
-    { id: 'applepay', label: 'Apple Pay', icon: Smartphone, desc: 'Quick & secure', color: 'from-emerald-950 to-green-950' },
-    { id: 'cod', label: 'Cash on Delivery', icon: Wallet, desc: 'Pay when received', color: 'from-emerald-800 to-green-900' },
+    { id: 'card', label: t('Credit / Debit Card'), icon: CreditCard, desc: t('Visa, Mastercard'), color: 'from-emerald-800 to-green-900' },
+    { id: 'mada', label: t('Mada'), icon: Banknote, desc: t('Saudi debit cards'), color: 'from-green-800 to-teal-900' },
+    { id: 'applepay', label: t('Apple Pay'), icon: Smartphone, desc: t('Quick & secure'), color: 'from-emerald-950 to-green-950' },
+    { id: 'cod', label: t('Cash on Delivery'), icon: Wallet, desc: t('Pay when received'), color: 'from-emerald-800 to-green-900' },
   ]
 
   // ─── Success State ──────────────────────────────────────────────────────
@@ -3022,10 +3112,10 @@ function CheckoutView() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
       <motion.div {...fadeIn}>
         <button onClick={() => setView({ view: 'cart' })} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-primary mb-6 transition-colors">
-          <ArrowLeft className="size-4" /> Back to Cart
+          <ArrowLeft className="size-4" /> {t('Back to Cart')}
         </button>
 
-        <h1 className="font-serif text-3xl font-bold mb-2">Checkout</h1>
+        <h1 className="font-serif text-3xl font-bold mb-2">{t('Checkout')}</h1>
 
         {/* Step Indicator */}
         <div className="flex items-center gap-2 mb-8">
@@ -3038,7 +3128,7 @@ function CheckoutView() {
                 }`}
               >
                 {s === 'info' && step === 'payment' ? <Check className="size-4" /> : <span>{i + 1}</span>}
-                {s === 'info' ? 'Information' : 'Payment'}
+                {s === 'info' ? t('Information') : t('Payment')}
               </button>
               {i === 0 && <ChevronRight className="size-4 text-muted-foreground" />}
             </React.Fragment>
@@ -3052,20 +3142,20 @@ function CheckoutView() {
               <Card>
                 <CardHeader>
                   <CardTitle className="font-serif flex items-center gap-2">
-                    <UserCircle className="size-5 text-primary" /> Customer Information
+                    <UserCircle className="size-5 text-primary" /> {t('Customer Information')}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div>
-                    <Label htmlFor="name">Full Name *</Label>
-                    <Input id="name" name="name" placeholder="Your full name" value={form.name} onChange={handleChange} className="mt-1.5" />
+                    <Label htmlFor="name">{t('Full Name *')}</Label>
+                    <Input id="name" name="name" placeholder={t('Your full name')} value={form.name} onChange={handleChange} className="mt-1.5" />
                   </div>
                   <div>
-                    <Label htmlFor="email">Email Address *</Label>
+                    <Label htmlFor="email">{t('Email Address *')}</Label>
                     <Input id="email" name="email" type="email" placeholder="your@email.com" value={form.email} onChange={handleChange} className="mt-1.5" />
                   </div>
                   <div>
-                    <Label htmlFor="phone">Phone Number</Label>
+                    <Label htmlFor="phone">{t('Phone Number')}</Label>
                     <PhoneInput
                       id="phone"
                       value={form.phone}
@@ -3077,7 +3167,7 @@ function CheckoutView() {
                 </CardContent>
                 <CardFooter>
                   <Button className="w-full" size="lg" onClick={handleInfoSubmit}>
-                    Continue to Payment <ArrowRight className="size-4 ml-2" />
+                    {t('Continue to Payment')} <ArrowRight className="size-4 ml-2" />
                   </Button>
                 </CardFooter>
               </Card>
@@ -3098,7 +3188,7 @@ function CheckoutView() {
                         <p className="text-xs text-muted-foreground">{form.email}{form.phone ? ` • ${form.phone}` : ''}</p>
                       </div>
                     </div>
-                    <Button variant="ghost" size="sm" onClick={() => setStep('info')}>Edit</Button>
+                    <Button variant="ghost" size="sm" onClick={() => setStep('info')}>{t('Edit')}</Button>
                   </CardContent>
                 </Card>
 
@@ -3106,7 +3196,7 @@ function CheckoutView() {
                 <Card>
                   <CardHeader>
                     <CardTitle className="font-serif flex items-center gap-2">
-                      <CreditCard className="size-5 text-primary" /> Payment Method
+                      <CreditCard className="size-5 text-primary" /> {t('Payment Method')}
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-3">
@@ -3142,16 +3232,16 @@ function CheckoutView() {
                   <Card>
                     <CardHeader>
                       <CardTitle className="font-serif text-base flex items-center gap-2">
-                        <Lock className="size-4 text-primary" /> Card Details
+                        <Lock className="size-4 text-primary" /> {t('Card Details')}
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4">
                       <div>
-                        <Label htmlFor="cardName">Cardholder Name</Label>
-                        <Input id="cardName" name="name" placeholder="Name on card" value={cardForm.name} onChange={handleCardChange} className="mt-1.5" />
+                        <Label htmlFor="cardName">{t('Cardholder Name')}</Label>
+                        <Input id="cardName" name="name" placeholder={t('Name on card')} value={cardForm.name} onChange={handleCardChange} className="mt-1.5" />
                       </div>
                       <div>
-                        <Label htmlFor="cardNumber">Card Number</Label>
+                        <Label htmlFor="cardNumber">{t('Card Number')}</Label>
                         <div className="relative mt-1.5">
                           <Input id="cardNumber" name="number" placeholder="4242 4242 4242 4242" value={cardForm.number} onChange={handleCardChange} className="pr-12 font-mono" />
                           <CreditCard className="absolute right-3 top-1/2 -translate-y-1/2 size-5 text-muted-foreground" />
@@ -3159,17 +3249,17 @@ function CheckoutView() {
                       </div>
                       <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <Label htmlFor="cardExpiry">Expiry Date</Label>
+                          <Label htmlFor="cardExpiry">{t('Expiry Date')}</Label>
                           <Input id="cardExpiry" name="expiry" placeholder="MM/YY" value={cardForm.expiry} onChange={handleCardChange} className="mt-1.5 font-mono" />
                         </div>
                         <div>
-                          <Label htmlFor="cardCvc">CVC</Label>
-                          <Input id="cardCvc" name="cvc" placeholder="123" value={cardForm.cvc} onChange={handleCardChange} className="mt-1.5 font-mono" />
+                          <Label htmlFor="cardCvc">{t('CVC/CVV')}</Label>
+                          <Input id="cardCvc" name="cvc" placeholder="CVC/CVV" value={cardForm.cvc} onChange={handleCardChange} className="mt-1.5 font-mono" />
                         </div>
                       </div>
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <Lock className="size-3" />
-                        <span>Your payment is secured with 256-bit SSL encryption</span>
+                        <span>{t('Your payment is secured with 256-bit SSL encryption')}</span>
                       </div>
                     </CardContent>
                   </Card>
@@ -3227,49 +3317,49 @@ function CheckoutView() {
           <div>
             <Card className="sticky top-24">
               <CardHeader>
-                <CardTitle className="font-serif">Order Summary</CardTitle>
+                <CardTitle className="font-serif">{t('Order Summary')}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <CouponInput subtotal={total} countryCode={selectedCountry} />
                 <ScrollArea className="max-h-48">
                   {items.map(item => (
                     <div key={item.productId} className="flex justify-between text-sm py-1.5">
-                      <span className="truncate mr-2">{item.name} x{item.quantity}</span>
+                      <span className="truncate mr-2">{pn(item.name)} x{item.quantity}</span>
                       <span className="shrink-0">{formatPrice(item.price * item.quantity, selectedCountry)}</span>
                     </div>
                   ))}
                 </ScrollArea>
                 <Separator />
                 <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Subtotal</span>
+                  <span className="text-muted-foreground">{t('Subtotal')}</span>
                   <span>{formatPrice(total, selectedCountry)}</span>
                 </div>
                 {couponDiscount > 0 && (
                   <div className="flex justify-between text-sm text-primary">
                     <span className="flex items-center gap-1">
-                      <Tag className="size-3.5" /> Coupon ({appliedCoupon?.code})
+                      <Tag className="size-3.5" /> {t('Coupon')} ({appliedCoupon?.code})
                     </span>
                     <span>-{formatPrice(couponDiscount, selectedCountry)}</span>
                   </div>
                 )}
                 <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Shipping</span>
-                  <span>{shipping === 0 ? <span className="text-primary">Free</span> : formatPrice(shipping, selectedCountry)}</span>
+                  <span className="text-muted-foreground">{t('Shipping')}</span>
+                  <span>{shipping === 0 ? <span className="text-primary">{t('Free')}</span> : formatPrice(shipping, selectedCountry)}</span>
                 </div>
                 {paymentMethod === 'cod' && (
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">COD Fee</span>
+                    <span className="text-muted-foreground">{t('COD Fee')}</span>
                     <span>{formatPrice(codFee, selectedCountry)}</span>
                   </div>
                 )}
                 <Separator />
                 <div className="flex justify-between font-bold text-lg">
-                  <span>Total</span>
+                  <span>{t('Total')}</span>
                   <span className="text-primary">{formatPrice(grandTotal, selectedCountry)}</span>
                 </div>
                 <div className="flex items-center gap-2 text-xs text-muted-foreground mt-2">
                   <ShieldCheck className="size-3.5 text-primary" />
-                  <span>Secure checkout • 256-bit SSL</span>
+                  <span>{t('Secure checkout • 256-bit SSL')}</span>
                 </div>
               </CardContent>
             </Card>
@@ -3286,8 +3376,12 @@ function AdminDashboard() {
   const { setView } = useAppStore()
   const { selectedCountry } = useAppStore()
   const { user } = useAuthStore()
+  const { t } = useI18n()
   const [stats, setStats] = useState<AdminStats | null>(null)
   const [loading, setLoading] = useState(true)
+  const [revenueMode, setRevenueMode] = useState<'month' | 'day'>('month')
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(null)
+  const [selectedDay, setSelectedDay] = useState<string | null>(null)
 
   useEffect(() => {
     fetch('/api/admin/stats')
@@ -3297,19 +3391,35 @@ function AdminDashboard() {
   }, [])
 
   const statCards = [
-    { title: 'Total Products', value: stats?.totalProducts ?? 0, icon: Package, color: 'from-emerald-800 to-green-900' },
-    { title: 'Total Orders', value: stats?.totalOrders ?? 0, icon: ClipboardList, color: 'from-green-800 to-emerald-700' },
-    { title: 'Total Revenue', value: stats?.totalRevenue ?? 0, icon: DollarSign, color: 'from-primary to-emerald-400', isPrice: true },
-    { title: 'Paid Revenue', value: stats?.paidRevenue ?? 0, icon: CircleDollarSign, color: 'from-emerald-700 to-green-800', isPrice: true },
+    { title: t('Total Products'), value: stats?.totalProducts ?? 0, icon: Package, color: 'from-emerald-800 to-green-900' },
+    { title: t('Total Orders'), value: stats?.totalOrders ?? 0, icon: ClipboardList, color: 'from-green-800 to-emerald-700' },
+    { title: t('Total Revenue'), value: stats?.totalRevenue ?? 0, icon: DollarSign, color: 'from-primary to-emerald-400', isPrice: true },
+    { title: t('Paid Revenue'), value: stats?.paidRevenue ?? 0, icon: CircleDollarSign, color: 'from-emerald-700 to-green-800', isPrice: true },
   ]
 
   const chartData = useMemo(() => {
-    if (!stats?.monthlyRevenue) return []
-    return stats.monthlyRevenue.map(d => ({
-      month: d.month ? new Date(d.month + '-01').toLocaleDateString('en', { month: 'short' }) : 'N/A',
-      revenue: d.revenue || 0,
+    if (revenueMode === 'day') {
+      return (stats?.dailyRevenue || [])
+        .filter(day => !selectedMonth || day.day.startsWith(selectedMonth))
+        .map(day => ({
+          key: day.day,
+          label: new Date(day.day + 'T00:00:00').toLocaleDateString('en', { month: 'short', day: 'numeric' }),
+          revenue: day.revenue || 0,
+          orders: day.orders || 0,
+        }))
+    }
+    return (stats?.monthlyRevenue || []).map(month => ({
+      key: month.month,
+      label: month.month ? new Date(month.month + '-01').toLocaleDateString('en', { month: 'short', year: 'numeric' }) : 'N/A',
+      revenue: month.revenue || 0,
+      orders: month.orders || 0,
     }))
-  }, [stats])
+  }, [stats, revenueMode, selectedMonth])
+
+  const selectedDayOrders = useMemo(() => {
+    if (!selectedDay || !stats?.revenueOrders) return []
+    return stats.revenueOrders.filter(order => new Date(order.createdAt).toISOString().slice(0, 10) === selectedDay)
+  }, [stats, selectedDay])
 
   const engagementChartData = useMemo(() => {
     if (!stats?.engagement?.dailyEngagement) return []
@@ -3346,29 +3456,39 @@ function AdminDashboard() {
       <motion.div {...fadeIn}>
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="font-serif text-3xl font-bold">Admin Dashboard</h1>
-            <p className="text-muted-foreground">Overview of your store performance</p>
+            <h1 className="font-serif text-3xl font-bold">{t('Admin Dashboard')}</h1>
+            <p className="text-muted-foreground">{t('Overview of your store performance')}</p>
           </div>
           <div className="flex gap-2 flex-wrap">
             {hasPermission(user?.permissions, 'products', 'view') && (
               <Button variant="outline" onClick={() => setView({ view: 'admin-products' })}>
-                <Boxes className="size-4 mr-1" /> Products
+                <Boxes className="size-4 mr-1" /> {t('Products')}
               </Button>
             )}
             {hasPermission(user?.permissions, 'categories', 'view') && (
               <Button variant="outline" onClick={() => setView({ view: 'admin-categories' })}>
-                <Tag className="size-4 mr-1" /> Categories
+                <Tag className="size-4 mr-1" /> {t('Categories')}
               </Button>
             )}
             {hasPermission(user?.permissions, 'orders', 'view') && (
               <Button variant="outline" onClick={() => setView({ view: 'admin-orders' })}>
-                <ClipboardList className="size-4 mr-1" /> Orders
+                <ClipboardList className="size-4 mr-1" /> {t('Orders')}
               </Button>
             )}
             {isSuperAdmin(user?.adminRole) && (
               <Button variant="outline" onClick={() => setView({ view: 'admin-staff' })}>
-                <UsersRound className="size-4 mr-1" /> Staff
+                <UsersRound className="size-4 mr-1" /> {t('Staff')}
               </Button>
+            )}
+            {(isSuperAdmin(user?.adminRole) || hasPermission(user?.permissions, 'orders', 'view')) && (
+              <>
+                <Button variant="outline" onClick={() => setView({ view: 'admin-customers' })}>
+                  <Users className="size-4 mr-1" /> Customers
+                </Button>
+                <Button variant="outline" onClick={() => setView({ view: 'admin-finance' })}>
+                  <Wallet className="size-4 mr-1" /> Profit & Loss
+                </Button>
+              </>
             )}
           </div>
         </div>
@@ -3618,37 +3738,142 @@ function AdminDashboard() {
             )}
 
             {/* Revenue Chart */}
-            {chartData.length > 0 && (
-              <Card className="mb-8">
-                <CardHeader>
-                  <CardTitle className="font-serif flex items-center gap-2">
-                    <TrendingUp className="size-5 text-primary" /> Revenue Overview
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="h-72">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={chartData}>
-                        <defs>
-                          <linearGradient id="goldGradient" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="oklch(0.55 0.13 155)" stopOpacity={0.3} />
-                            <stop offset="95%" stopColor="oklch(0.55 0.13 155)" stopOpacity={0} />
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                        <XAxis dataKey="month" className="text-xs" tick={{ fill: 'oklch(0.5 0.02 60)' }} />
-                        <YAxis className="text-xs" tick={{ fill: 'oklch(0.5 0.02 60)' }} />
-                        <RechartsTooltip
-                          contentStyle={{ backgroundColor: 'oklch(1 0 0)', border: '1px solid oklch(0.92 0.01 80)', borderRadius: '8px' }}
-                          formatter={(value: number) => [formatPrice(value, selectedCountry), 'Revenue']}
-                        />
-                        <Area type="monotone" dataKey="revenue" stroke="oklch(0.55 0.13 155)" fill="url(#goldGradient)" strokeWidth={2} />
-                      </AreaChart>
-                    </ResponsiveContainer>
+            <Card className="mb-8">
+              <CardHeader>
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div>
+                    <CardTitle className="font-serif flex items-center gap-2">
+                      <TrendingUp className="size-5 text-primary" /> Revenue Overview
+                    </CardTitle>
+                    <CardDescription>
+                      {revenueMode === 'month'
+                        ? 'Monthly revenue. Open a month to see each day.'
+                        : selectedMonth
+                          ? `Daily revenue for ${new Date(selectedMonth + '-01').toLocaleDateString('en', { month: 'long', year: 'numeric' })}.`
+                          : 'Daily revenue. Open a date to see the orders.'}
+                    </CardDescription>
                   </div>
-                </CardContent>
-              </Card>
-            )}
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant={revenueMode === 'month' ? 'default' : 'outline'}
+                      onClick={() => { setRevenueMode('month'); setSelectedMonth(null); setSelectedDay(null) }}
+                    >
+                      Monthly
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={revenueMode === 'day' ? 'default' : 'outline'}
+                      onClick={() => { setRevenueMode('day'); setSelectedDay(null) }}
+                    >
+                      By date
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {chartData.length === 0 ? (
+                  <div className="h-40 flex items-center justify-center text-sm text-muted-foreground">No revenue yet.</div>
+                ) : (
+                  <>
+                    <div className="h-72">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={chartData}>
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                          <XAxis dataKey="label" className="text-xs" tick={{ fill: 'oklch(0.5 0.02 60)' }} />
+                          <YAxis className="text-xs" tick={{ fill: 'oklch(0.5 0.02 60)' }} />
+                          <RechartsTooltip
+                            contentStyle={{ backgroundColor: 'oklch(1 0 0)', border: '1px solid oklch(0.92 0.01 80)', borderRadius: '8px' }}
+                            formatter={(value: number) => [formatPrice(value, selectedCountry), 'Revenue']}
+                          />
+                          <Bar
+                            dataKey="revenue"
+                            name="Revenue"
+                            fill="oklch(0.55 0.13 155)"
+                            radius={[4, 4, 0, 0]}
+                            className="cursor-pointer"
+                            onClick={(bar) => {
+                              const key = (bar as { key?: string })?.key || (bar as { payload?: { key?: string } })?.payload?.key
+                              if (!key) return
+                              if (revenueMode === 'month') {
+                                setSelectedMonth(key)
+                                setRevenueMode('day')
+                                setSelectedDay(null)
+                              } else {
+                                setSelectedDay(key)
+                              }
+                            }}
+                          />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="overflow-x-auto mt-4">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>{revenueMode === 'month' ? 'Month' : 'Date'}</TableHead>
+                            <TableHead>Orders</TableHead>
+                            <TableHead>Revenue</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {[...chartData].reverse().map(row => (
+                            <TableRow
+                              key={row.key}
+                              className={`cursor-pointer ${selectedDay === row.key || selectedMonth === row.key ? 'bg-primary/5' : ''}`}
+                              onClick={() => {
+                                if (revenueMode === 'month') {
+                                  setSelectedMonth(row.key)
+                                  setRevenueMode('day')
+                                  setSelectedDay(null)
+                                } else {
+                                  setSelectedDay(row.key)
+                                }
+                              }}
+                            >
+                              <TableCell className="font-medium">{row.label}</TableCell>
+                              <TableCell>{row.orders}</TableCell>
+                              <TableCell>{formatPrice(row.revenue, selectedCountry)}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                    {selectedDay && (
+                      <div className="mt-6">
+                        <h3 className="font-serif font-semibold mb-3">
+                          Orders on {new Date(selectedDay + 'T00:00:00').toLocaleDateString()}
+                        </h3>
+                        {selectedDayOrders.length === 0 ? (
+                          <p className="text-sm text-muted-foreground">No orders on this date.</p>
+                        ) : (
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Order</TableHead>
+                                <TableHead>Customer</TableHead>
+                                <TableHead>Status</TableHead>
+                                <TableHead>Total</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {selectedDayOrders.map(order => (
+                                <TableRow key={order.id}>
+                                  <TableCell className="font-mono text-xs">{order.id.slice(0, 10)}</TableCell>
+                                  <TableCell>{order.customerName}</TableCell>
+                                  <TableCell>{order.status}</TableCell>
+                                  <TableCell>{formatPrice(order.total, selectedCountry)}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </CardContent>
+            </Card>
 
             {/* Recent Orders */}
             {stats?.recentOrders && stats.recentOrders.length > 0 && (
@@ -3716,6 +3941,7 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
   const { selectedCountry } = useAppStore()
   const { user } = useAuthStore()
   const { toast } = useToast()
+  const { t, tc, pn } = useI18n()
   const canAdd = isSuperAdmin(user?.adminRole) || hasPermission(user?.permissions, 'products', 'add')
   const canEdit = isSuperAdmin(user?.adminRole) || hasPermission(user?.permissions, 'products', 'edit')
   const canDelete = isSuperAdmin(user?.adminRole) || hasPermission(user?.permissions, 'products', 'delete')
@@ -3729,6 +3955,9 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
   const [showEditDialog, setShowEditDialog] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [showViewDialog, setShowViewDialog] = useState(false)
+  const [showHistoryDialog, setShowHistoryDialog] = useState(false)
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyMovements, setHistoryMovements] = useState<{ id: string; type: string; quantity: number; note?: string; createdAt: string; stockBefore?: number; stockAfter?: number }[]>([])
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -3740,6 +3969,8 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
   const [formImages, setFormImages] = useState<string[]>([])
   const [formCategoryId, setFormCategoryId] = useState('')
   const [formStock, setFormStock] = useState('100')
+  const [formCost, setFormCost] = useState('')
+  const [formLowStock, setFormLowStock] = useState('10')
   const [formFeatured, setFormFeatured] = useState(false)
   const [formStatus, setFormStatus] = useState('active')
   const [formError, setFormError] = useState('')
@@ -3770,8 +4001,7 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
   const filtered = useMemo(() => {
     let result = products
     if (search) {
-      const q = search.toLowerCase()
-      result = result.filter(p => p.name.toLowerCase().includes(q) || p.description?.toLowerCase().includes(q))
+      result = result.filter(p => productMatchesQuery(p.name, p.description, search))
     }
     if (catFilter !== 'all') {
       result = result.filter(p => p.category.slug === catFilter)
@@ -3787,6 +4017,8 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
     setFormImages([])
     setFormCategoryId('')
     setFormStock('100')
+    setFormCost('')
+    setFormLowStock('10')
     setFormFeatured(false)
     setFormStatus('active')
     setFormError('')
@@ -3809,6 +4041,8 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
     setFormImages(Array.isArray(product.images) ? product.images : [])
     setFormCategoryId(product.categoryId)
     setFormStock(product.stock.toString())
+    setFormCost(product.costPrice ? String(product.costPrice) : '')
+    setFormLowStock(String(product.lowStockThreshold ?? 10))
     setFormFeatured(product.featured)
     setFormStatus(product.status)
     setFormError('')
@@ -3823,6 +4057,33 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
   const openViewDialog = (product: Product) => {
     setSelectedProduct(product)
     setShowViewDialog(true)
+  }
+
+  const openStockHistory = async (product: Product) => {
+    setSelectedProduct(product)
+    setHistoryMovements([])
+    setShowHistoryDialog(true)
+    setHistoryLoading(true)
+    try {
+      const res = await fetch(`/api/admin/inventory?productId=${product.id}`)
+      const data = await res.json()
+      if (res.ok) {
+        setHistoryMovements(data.movements || [])
+        if (data.product) {
+          setSelectedProduct({
+            ...product,
+            stock: data.product.stock,
+            initialStock: data.product.initialStock,
+            totalRestocked: data.product.totalRestocked,
+            totalSold: data.product.totalSold,
+            totalAdjusted: data.product.totalAdjusted,
+            lowStockThreshold: data.product.lowStockThreshold,
+            costPrice: data.product.costPrice,
+          })
+        }
+      }
+    } catch {}
+    setHistoryLoading(false)
   }
 
   // Image upload handler
@@ -3899,6 +4160,8 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
           images: formImages,
           categoryId: formCategoryId,
           stock: formStock,
+          costPrice: formCost,
+          lowStockThreshold: formLowStock,
           featured: formFeatured,
           status: formStatus,
         }),
@@ -3939,6 +4202,8 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
           images: formImages,
           categoryId: formCategoryId,
           stock: formStock,
+          costPrice: formCost,
+          lowStockThreshold: formLowStock,
           featured: formFeatured,
           status: formStatus,
         }),
@@ -3992,7 +4257,7 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
         body: JSON.stringify({ status: newStatus }),
       })
       if (res.ok) {
-        toast({ title: `Product ${newStatus}`, description: `${product.name} is now ${newStatus}.` })
+        toast({ title: `Product ${newStatus}`, description: `${pn(product.name)} is now ${newStatus}.` })
         await refreshProducts()
         emitProductChange('updated', product.id)
       }
@@ -4007,7 +4272,7 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
         body: JSON.stringify({ featured: !product.featured }),
       })
       if (res.ok) {
-        toast({ title: product.featured ? 'Unfeatured' : 'Featured', description: `${product.name} ${product.featured ? 'removed from' : 'added to'} featured.` })
+        toast({ title: product.featured ? 'Unfeatured' : 'Featured', description: `${pn(product.name)} ${product.featured ? 'removed from' : 'added to'} featured.` })
         await refreshProducts()
         emitProductChange('updated', product.id)
       }
@@ -4037,8 +4302,19 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
           <Input id="form-price" type="number" step="0.01" value={formPrice} onChange={e => setFormPrice(e.target.value)} placeholder="0.00" />
         </div>
         <div className="space-y-2">
+          <Label htmlFor="form-cost">Cost price (SAR)</Label>
+          <Input id="form-cost" type="number" step="0.01" value={formCost} onChange={e => setFormCost(e.target.value)} placeholder="0.00" />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
           <Label htmlFor="form-stock">Stock</Label>
           <Input id="form-stock" type="number" value={formStock} onChange={e => setFormStock(e.target.value)} placeholder="100" />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="form-low-stock">Low stock benchmark</Label>
+          <Input id="form-low-stock" type="number" min="0" value={formLowStock} onChange={e => setFormLowStock(e.target.value)} placeholder="10" />
+          <p className="text-[11px] text-muted-foreground">Yellow at or below this number. Red when stock is 0.</p>
         </div>
       </div>
       <div className="space-y-2">
@@ -4185,7 +4461,7 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
       <motion.div {...fadeIn}>
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-8 gap-4">
           <div>
-            <h1 className="font-serif text-3xl font-bold">Manage Products</h1>
+            <h1 className="font-serif text-3xl font-bold">{t('Manage Products')}</h1>
             <p className="text-muted-foreground">{products.length} total products</p>
           </div>
           <div className="flex gap-2">
@@ -4261,18 +4537,31 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
                           </TableCell>
                           <TableCell>
                             <button onClick={() => openViewDialog(p)} className="font-medium text-sm hover:text-primary transition-colors text-left max-w-[200px] truncate block">
-                              {p.name}
+                              {pn(p.name)}
                             </button>
                             {p.description && (
                               <p className="text-xs text-muted-foreground truncate max-w-[200px]">{p.description}</p>
                             )}
                           </TableCell>
-                          <TableCell><Badge variant="secondary" className="text-xs">{p.category.name}</Badge></TableCell>
+                          <TableCell><Badge variant="secondary" className="text-xs">{tc(p.category.slug, p.category.name)}</Badge></TableCell>
                           <TableCell className="font-semibold">{formatPrice(p.price, selectedCountry)}</TableCell>
                           <TableCell>
-                            <span className={`text-sm ${p.stock < 10 ? 'text-destructive font-semibold' : p.stock < 30 ? 'text-gold font-medium' : ''}`}>
-                              {p.stock}
-                            </span>
+                            {(() => {
+                              const level = stockLevel(p.stock, p.lowStockThreshold ?? 10)
+                              return (
+                                <div className="space-y-1">
+                                  <span className={`inline-flex items-center rounded px-2 py-0.5 text-sm font-semibold ${stockToneClass(level)}`}>
+                                    {p.stock} {level === 'out' ? 'Out' : level === 'low' ? 'Low' : ''}
+                                  </span>
+                                  <p className="text-[10px] text-muted-foreground whitespace-nowrap">
+                                    Open {p.initialStock ?? '—'} · Added {p.totalRestocked ?? 0} · Sold {p.totalSold ?? 0}
+                                  </p>
+                                  <button type="button" onClick={() => openStockHistory(p)} className="text-[11px] text-primary inline-flex items-center gap-1 hover:underline">
+                                    <History className="size-3" /> History
+                                  </button>
+                                </div>
+                              )
+                            })()}
                           </TableCell>
                           <TableCell>
                             <div className="flex -space-x-1">
@@ -4394,11 +4683,11 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
                     )}
                   </div>
                   <div>
-                    <p className="font-semibold">{selectedProduct.name}</p>
-                    <p className="text-sm text-muted-foreground">{selectedProduct.category.name} • {formatPrice(selectedProduct.price, selectedCountry)}</p>
+                    <p className="font-semibold">{pn(selectedProduct.name)}</p>
+                    <p className="text-sm text-muted-foreground">{tc(selectedProduct.category.slug, selectedProduct.category.name)} • {formatPrice(selectedProduct.price, selectedCountry)}</p>
                   </div>
                 </div>
-                <p className="text-sm text-muted-foreground mt-3">Are you sure you want to delete <strong>{selectedProduct.name}</strong>? All associated order items will also be removed.</p>
+                <p className="text-sm text-muted-foreground mt-3">Are you sure you want to delete <strong>{pn(selectedProduct.name)}</strong>? All associated order items will also be removed.</p>
               </div>
             )}
             <DialogFooter className="gap-2">
@@ -4407,6 +4696,52 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
                 {saving ? <div className="size-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <><Trash2 className="size-4 mr-1" /> Delete</>}
               </Button>
             </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={showHistoryDialog} onOpenChange={setShowHistoryDialog}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="font-serif">Stock history</DialogTitle>
+              <DialogDescription>{selectedProduct ? pn(selectedProduct.name) : 'Inventory movement'}</DialogDescription>
+            </DialogHeader>
+            {selectedProduct && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+                {[
+                  { label: 'Opening', value: selectedProduct.initialStock ?? 0 },
+                  { label: 'Added', value: selectedProduct.totalRestocked ?? 0 },
+                  { label: 'Sold', value: selectedProduct.totalSold ?? 0 },
+                  { label: 'On hand', value: selectedProduct.stock },
+                ].map(item => (
+                  <div key={item.label} className="rounded-lg border p-2">
+                    <p className="text-[11px] text-muted-foreground">{item.label}</p>
+                    <p className="font-bold">{item.value}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="max-h-72 overflow-y-auto">
+              {historyLoading ? (
+                <p className="text-sm text-muted-foreground py-6 text-center">Loading history...</p>
+              ) : historyMovements.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-6 text-center">No stock movements yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {historyMovements.map(move => (
+                    <div key={move.id} className="flex items-start justify-between gap-3 rounded-lg border px-3 py-2">
+                      <div>
+                        <p className="text-sm font-medium capitalize">{move.type}</p>
+                        <p className="text-xs text-muted-foreground">{move.note}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-semibold">{move.type === 'sale' || move.type === 'adjustment' ? '−' : '+'}{move.quantity}</p>
+                        <p className="text-[11px] text-muted-foreground">{move.createdAt ? new Date(move.createdAt).toLocaleString() : ''}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </DialogContent>
         </Dialog>
 
@@ -4444,8 +4779,8 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <h3 className="font-serif font-bold text-lg">{selectedProduct.name}</h3>
-                      <Badge variant="secondary" className="text-xs mt-1">{selectedProduct.category.name}</Badge>
+                      <h3 className="font-serif font-bold text-lg">{pn(selectedProduct.name)}</h3>
+                      <Badge variant="secondary" className="text-xs mt-1">{tc(selectedProduct.category.slug, selectedProduct.category.name)}</Badge>
                       <div className="flex items-center gap-2 mt-2">
                         <Badge variant={selectedProduct.status === 'active' ? 'default' : 'secondary'} className="text-xs">{selectedProduct.status}</Badge>
                         {selectedProduct.featured && (
@@ -4474,10 +4809,17 @@ function AdminProducts({ products: initialProducts, onProductsChange }: { produc
                     <Card>
                       <CardContent className="p-3 text-center">
                         <p className="text-xs text-muted-foreground">Stock</p>
-                        <p className={`font-bold ${selectedProduct.stock < 10 ? 'text-destructive' : selectedProduct.stock < 30 ? 'text-gold' : 'text-primary'}`}>
-                          {selectedProduct.stock} units
+                        {(() => {
+                          const level = stockLevel(selectedProduct.stock, selectedProduct.lowStockThreshold ?? 10)
+                          return (
+                            <p className={`font-bold inline-flex rounded px-2 ${stockToneClass(level)}`}>
+                              {selectedProduct.stock} {level === 'out' ? 'out' : level === 'low' ? 'low' : 'in stock'}
+                            </p>
+                          )
+                        })()}
+                        <p className="text-[10px] text-muted-foreground mt-1">
+                          Open {selectedProduct.initialStock ?? '—'} · Added {selectedProduct.totalRestocked ?? 0} · Sold {selectedProduct.totalSold ?? 0}
                         </p>
-                        <p className="text-[10px] text-muted-foreground">{selectedProduct.stock < 10 ? 'Low stock!' : 'In stock'}</p>
                       </CardContent>
                     </Card>
                   </div>
@@ -4510,6 +4852,7 @@ function AdminOrders() {
   const { selectedCountry } = useAppStore()
   const { user } = useAuthStore()
   const { toast } = useToast()
+  const { t, pn } = useI18n()
   const canEdit = isSuperAdmin(user?.adminRole) || hasPermission(user?.permissions, 'orders', 'edit')
   const canDelete = isSuperAdmin(user?.adminRole) || hasPermission(user?.permissions, 'orders', 'delete')
   const [orders, setOrders] = useState<Order[]>([])
@@ -4597,7 +4940,7 @@ function AdminOrders() {
       <motion.div {...fadeIn}>
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="font-serif text-3xl font-bold">Manage Orders</h1>
+            <h1 className="font-serif text-3xl font-bold">{t('Manage Orders')}</h1>
             <p className="text-muted-foreground">{orders.length} total orders</p>
           </div>
           <div className="flex gap-2">
@@ -4749,7 +5092,7 @@ function AdminOrders() {
                               <div className="space-y-1.5">
                                 {order.items.map(item => (
                                   <div key={item.id} className="flex justify-between text-sm">
-                                    <span className="truncate mr-2">{item.name} x{item.quantity}</span>
+                                    <span className="truncate mr-2">{pn(item.name)} x{item.quantity}</span>
                                     <span className="shrink-0">{formatPrice(item.price * item.quantity, selectedCountry)}</span>
                                   </div>
                                 ))}
@@ -4825,6 +5168,7 @@ function SignInView() {
   const { setView } = useAppStore()
   const { signIn } = useAuthStore()
   const { toast } = useToast()
+  const { t } = useI18n()
   const [loginType, setLoginType] = useState<'customer' | 'admin'>('customer')
   const [customerAuthMethod, setCustomerAuthMethod] = useState<'email' | 'phone'>('email')
   const [email, setEmail] = useState('')
@@ -4943,7 +5287,7 @@ function SignInView() {
                 transition={{ duration: 0.3 }}
               >
                 <h2 className="font-serif text-3xl font-bold mb-3">
-                  {loginType === 'admin' ? 'Admin Portal' : 'Welcome Back'}
+                  {loginType === 'admin' ? t('Admin Portal') : t('Welcome Back')}
                 </h2>
                 <p className="text-white/80 text-sm leading-relaxed max-w-[260px] mx-auto">
                   {loginType === 'admin'
@@ -5000,7 +5344,7 @@ function SignInView() {
                     )}
                   </motion.div>
                   <div className="text-white">
-                    <h2 className="font-serif text-2xl font-bold">{loginType === 'admin' ? 'Admin Portal' : 'Welcome Back'}</h2>
+                    <h2 className="font-serif text-2xl font-bold">{loginType === 'admin' ? t('Admin Portal') : t('Welcome Back')}</h2>
                     <p className="text-white/80 text-sm">{loginType === 'admin' ? 'Sign in to admin dashboard' : 'Sign in to your Alifaain account'}</p>
                   </div>
                 </div>
@@ -5015,7 +5359,7 @@ function SignInView() {
                   )}
                 </div>
                 <CardTitle className="font-serif text-2xl">
-                  {loginType === 'admin' ? 'Admin Portal' : 'Welcome Back'}
+                  {loginType === 'admin' ? t('Admin Portal') : t('Welcome Back')}
                 </CardTitle>
                 <CardDescription>
                   {loginType === 'admin' ? 'Sign in to admin dashboard' : 'Sign in to your Alifaain account'}
@@ -5148,7 +5492,7 @@ function SignInView() {
                     ) : (
                       <>
                         {loginType === 'admin' ? (
-                          <><ShieldCheck className="size-4 mr-2" /> Sign In as Admin</>
+                          <><ShieldCheck className="size-4 mr-2" /> {t('Sign In as Admin')}</>
                         ) : (
                           <><LogIn className="size-4 mr-2" /> Sign In</>
                         )}
@@ -5251,6 +5595,7 @@ function SignUpView() {
   const { setView } = useAppStore()
   const { signUp } = useAuthStore()
   const { toast } = useToast()
+  const { t } = useI18n()
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
@@ -5388,15 +5733,15 @@ function SignUpView() {
                 <Sparkles className="size-10 text-white" />
               </div>
             </motion.div>
-            <h2 className="font-serif text-3xl font-bold mb-3">Join Alifaain</h2>
+            <h2 className="font-serif text-3xl font-bold mb-3">{t('Join Alifaain')}</h2>
             <p className="text-white/80 text-sm leading-relaxed max-w-[260px] mx-auto">
-              Create an account to unlock exclusive offers and track your beauty journey.
+              {t('Create an account to unlock exclusive offers and track your beauty journey.')}
             </p>
             <div className="mt-8 grid grid-cols-3 gap-3 max-w-[240px] mx-auto">
               {[
-                { icon: <ShieldCheck className="size-4" />, text: 'Secure' },
-                { icon: <Star className="size-4" />, text: 'Premium' },
-                { icon: <Truck className="size-4" />, text: 'Fast Ship' },
+                { icon: <ShieldCheck className="size-4" />, text: t('Secure') },
+                { icon: <Star className="size-4" />, text: t('Premium') },
+                { icon: <Truck className="size-4" />, text: t('Fast Ship') },
               ].map((item, i) => (
                 <div key={i} className="flex flex-col items-center gap-1 bg-white/10 backdrop-blur-sm rounded-lg p-3">
                   {item.icon}
@@ -5429,8 +5774,8 @@ function SignUpView() {
                     </div>
                   </motion.div>
                   <div className="text-white">
-                    <h2 className="font-serif text-2xl font-bold">Create Account</h2>
-                    <p className="text-white/80 text-sm">Join Alifaain for the best beauty experience</p>
+                    <h2 className="font-serif text-2xl font-bold">{t('Create Account')}</h2>
+                    <p className="text-white/80 text-sm">{t('Join Alifaain for the best beauty experience')}</p>
                   </div>
                 </div>
               </div>
@@ -5439,8 +5784,8 @@ function SignUpView() {
                 <div className="mx-auto mb-4 size-14 rounded-full bg-primary/10 flex items-center justify-center">
                   <UserPlus className="size-7 text-primary" />
                 </div>
-                <CardTitle className="font-serif text-2xl">Create Account</CardTitle>
-                <CardDescription>Join Alifaain for the best beauty experience</CardDescription>
+                <CardTitle className="font-serif text-2xl">{t('Create Account')}</CardTitle>
+                <CardDescription>{t('Join Alifaain for the best beauty experience')}</CardDescription>
               </CardHeader>
               <CardContent className="pt-4">
                 <form onSubmit={handleSubmit} className="space-y-4">
@@ -5459,7 +5804,7 @@ function SignUpView() {
                   </AnimatePresence>
 
                   <div className="space-y-2">
-                    <Label htmlFor="name">Full Name</Label>
+                    <Label htmlFor="name">{t('Full Name')}</Label>
                     <div className="relative">
                       <UserCircle className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
                       <Input
@@ -5480,7 +5825,7 @@ function SignUpView() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="signup-email">Email Address</Label>
+                    <Label htmlFor="signup-email">{t('Email Address')}</Label>
                     <div className="relative">
                       <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
                       <Input
@@ -5519,7 +5864,7 @@ function SignUpView() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="signup-password">Password</Label>
+                    <Label htmlFor="signup-password">{t('Password')}</Label>
                     <div className="relative">
                       <Lock className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
                       <Input
@@ -5561,7 +5906,7 @@ function SignUpView() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="confirm-password">Confirm Password</Label>
+                    <Label htmlFor="confirm-password">{t('Confirm Password')}</Label>
                     <div className="relative">
                       <Lock className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
                       <Input
@@ -5613,7 +5958,7 @@ function SignUpView() {
                       <div className="size-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                     ) : (
                       <>
-                        <UserPlus className="size-4 mr-2" /> Create Account
+                        <UserPlus className="size-4 mr-2" /> {t('Create Account')}
                       </>
                     )}
                   </Button>
@@ -5644,6 +5989,7 @@ function ProfileView() {
   const { user, signOut } = useAuthStore()
   const { setView, selectedCountry } = useAppStore()
   const { toast } = useToast()
+  const { t } = useI18n()
   const [activeTab, setActiveTab] = useState('details')
   const [profileLoading, setProfileLoading] = useState(true)
   const [savingProfile, setSavingProfile] = useState(false)
@@ -5687,10 +6033,10 @@ function ProfileView() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-16 text-center">
         <motion.div {...fadeIn}>
           <UserCircle className="size-16 text-muted-foreground mx-auto mb-4" />
-          <h2 className="font-serif text-2xl font-bold mb-2">Not Signed In</h2>
-          <p className="text-muted-foreground mb-6">Please sign in to view your profile.</p>
+          <h2 className="font-serif text-2xl font-bold mb-2">{t('Not Signed In')}</h2>
+          <p className="text-muted-foreground mb-6">{t('Please sign in to view your profile.')}</p>
           <Button onClick={() => setView({ view: 'signin' })}>
-            <LogIn className="size-4 mr-2" /> Sign In
+            <LogIn className="size-4 mr-2" /> {t('Sign In')}
           </Button>
         </motion.div>
       </div>
@@ -5845,10 +6191,10 @@ function ProfileView() {
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="details" className="text-xs sm:text-sm">Details</TabsTrigger>
-            <TabsTrigger value="password" className="text-xs sm:text-sm">Password</TabsTrigger>
-            <TabsTrigger value="orders" className="text-xs sm:text-sm">Orders</TabsTrigger>
-            <TabsTrigger value="danger" className="text-xs sm:text-sm text-destructive">Danger</TabsTrigger>
+            <TabsTrigger value="details" className="text-xs sm:text-sm">{t('Details')}</TabsTrigger>
+            <TabsTrigger value="password" className="text-xs sm:text-sm">{t('Password')}</TabsTrigger>
+            <TabsTrigger value="orders" className="text-xs sm:text-sm">{t('Orders')}</TabsTrigger>
+            <TabsTrigger value="danger" className="text-xs sm:text-sm text-destructive">{t('Danger')}</TabsTrigger>
           </TabsList>
 
           {/* Account Details Tab */}
@@ -5856,7 +6202,7 @@ function ProfileView() {
             <Card>
               <CardHeader>
                 <CardTitle className="font-serif text-lg flex items-center gap-2">
-                  <UserCircle className="size-5 text-primary" /> Account Details
+                  <UserCircle className="size-5 text-primary" /> {t('Account Details')}
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -5903,7 +6249,7 @@ function ProfileView() {
                   ) : (
                     <Save className="size-4" />
                   )}
-                  Save Changes
+                  {t('Save Changes')}
                 </Button>
               </CardContent>
             </Card>
@@ -5914,7 +6260,7 @@ function ProfileView() {
             <Card>
               <CardHeader>
                 <CardTitle className="font-serif text-lg flex items-center gap-2">
-                  <Lock className="size-5 text-primary" /> Change Password
+                  <Lock className="size-5 text-primary" /> {t('Change Password')}
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -6095,6 +6441,7 @@ interface CategoryWithCount extends Category {
 
 function AdminCategories({ onCategoriesChange }: { onCategoriesChange?: () => void }) {
   const { setView } = useAppStore()
+  const { t, tc, cdesc } = useI18n()
   const { user } = useAuthStore()
   const { toast } = useToast()
   const canAdd = isSuperAdmin(user?.adminRole) || hasPermission(user?.permissions, 'categories', 'add')
@@ -6317,7 +6664,7 @@ function AdminCategories({ onCategoriesChange }: { onCategoriesChange?: () => vo
             </Button>
             <div>
               <h1 className="font-serif text-3xl font-bold flex items-center gap-2">
-                <Tag className="size-7 text-primary" /> Categories
+                <Tag className="size-7 text-primary" /> {t('Categories')}
               </h1>
               <p className="text-muted-foreground">Manage your product categories</p>
             </div>
@@ -6379,10 +6726,10 @@ function AdminCategories({ onCategoriesChange }: { onCategoriesChange?: () => vo
                   </div>
 
                   <CardContent className="p-4">
-                    <h3 className="font-serif font-bold text-lg mb-1">{cat.name}</h3>
+                    <h3 className="font-serif font-bold text-lg mb-1">{tc(cat.slug, cat.name)}</h3>
                     <p className="text-xs text-muted-foreground mb-1">Slug: {cat.slug}</p>
                     {cat.description && (
-                      <p className="text-xs text-muted-foreground line-clamp-2 mb-2">{cat.description}</p>
+                      <p className="text-xs text-muted-foreground line-clamp-2 mb-2">{cdesc(cat.slug, cat.description)}</p>
                     )}
                     <div className="flex items-center justify-between">
                       <span className="text-xs text-muted-foreground">
@@ -6480,6 +6827,7 @@ function AdminCategories({ onCategoriesChange }: { onCategoriesChange?: () => vo
 function AdminStaff() {
   const { setView } = useAppStore()
   const { user: currentUser } = useAuthStore()
+  const { t } = useI18n()
   const { toast } = useToast()
   const [staff, setStaff] = useState<StaffMember[]>([])
   const [loading, setLoading] = useState(true)
@@ -6861,7 +7209,7 @@ function AdminStaff() {
             </Button>
             <div>
               <h1 className="font-serif text-3xl font-bold flex items-center gap-2">
-                <UsersRound className="size-7 text-primary" /> Staff Management
+                <UsersRound className="size-7 text-primary" /> {t('Staff Management')}
               </h1>
               <p className="text-muted-foreground">Manage admin access and permissions</p>
             </div>
@@ -7259,12 +7607,18 @@ function AdminGuard({ children }: { children: React.ReactNode }) {
 // ─── Main Page Component ─────────────────────────────────────────────────────
 
 export default function AlifaainPage() {
-  const { currentView, selectedCountry, fetchExchangeRates } = useAppStore()
+  const { currentView, selectedCountry, fetchExchangeRates, language } = useAppStore()
   const { fetchSession, user, loading: authLoading } = useAuthStore()
+  const { t } = useI18n()
   const [products, setProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
   const [seeded, setSeeded] = useState(false)
+
+  useEffect(() => {
+    document.documentElement.lang = language === 'ar' ? 'ar' : 'en'
+    document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr'
+  }, [language])
 
   // Fetch auth session on mount
   useEffect(() => {
@@ -7375,10 +7729,10 @@ export default function AlifaainPage() {
     return (
       <div className="min-h-screen flex flex-col">
         <Header />
-        <main className="flex-1 flex items-center justify-center">
+        <main className="flex-1 flex items-center justify-center pt-20">
           <div className="text-center">
             <div className="size-12 rounded-full border-2 border-primary border-t-transparent animate-spin mx-auto mb-4" />
-            <p className="text-muted-foreground font-serif">Loading Alifaain...</p>
+            <p className="text-muted-foreground font-serif">{t('Loading Alifaain...')}</p>
           </div>
         </main>
         <Footer />
@@ -7420,6 +7774,10 @@ export default function AlifaainPage() {
         return <AdminGuard><AdminCategories onCategoriesChange={refreshCategories} /></AdminGuard>
       case 'admin-staff':
         return <AdminGuard><AdminStaff /></AdminGuard>
+      case 'admin-customers':
+        return <AdminGuard><AdminCustomers /></AdminGuard>
+      case 'admin-finance':
+        return <AdminGuard><AdminFinance /></AdminGuard>
       default:
         return <HomeView products={products} categories={categories} />
     }
@@ -7428,13 +7786,14 @@ export default function AlifaainPage() {
   return (
     <div className="min-h-screen flex flex-col">
       <Header />
-      <main className="flex-1">
+      <main className="flex-1 pt-20">
         <AnimatePresence mode="wait">
           <motion.div
             key={currentView.view}
-            initial={{ opacity: 0, y: 10 }}
+            className={currentView.view === 'products' ? 'shop-view' : undefined}
+            initial={{ opacity: 0, y: currentView.view === 'products' ? 0 : 10 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
+            exit={{ opacity: 0, y: currentView.view === 'products' ? 0 : -10 }}
             transition={{ duration: 0.2 }}
           >
             {renderView()}

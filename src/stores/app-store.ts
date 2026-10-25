@@ -129,15 +129,19 @@ export const useCouponStore = create<CouponStore>()(
 )
 
 interface AppView {
-  view: 'home' | 'products' | 'product-detail' | 'cart' | 'wishlist' | 'checkout' | 'admin' | 'admin-products' | 'admin-orders' | 'admin-categories' | 'admin-staff' | 'signin' | 'signup' | 'profile' | 'about' | 'contact'
+  view: 'home' | 'products' | 'product-detail' | 'cart' | 'wishlist' | 'checkout' | 'admin' | 'admin-products' | 'admin-orders' | 'admin-categories' | 'admin-staff' | 'admin-customers' | 'admin-finance' | 'signin' | 'signup' | 'profile' | 'about' | 'contact'
   params?: Record<string, string>
 }
+
+export type Language = 'en' | 'ar'
 
 interface AppStore {
   currentView: AppView
   setView: (view: AppView) => void
   selectedCountry: string
   setSelectedCountry: (country: string) => void
+  language: Language
+  setLanguage: (language: Language) => void
   searchQuery: string
   setSearchQuery: (query: string) => void
   selectedCategory: string | null
@@ -155,6 +159,8 @@ export const useAppStore = create<AppStore>()(
       setView: (view) => set({ currentView: view }),
       selectedCountry: 'SA',
       setSelectedCountry: (country) => set({ selectedCountry: country }),
+      language: 'ar',
+      setLanguage: (language) => set({ language }),
       searchQuery: '',
       setSearchQuery: (query) => set({ searchQuery: query }),
       selectedCategory: null,
@@ -181,8 +187,17 @@ export const useAppStore = create<AppStore>()(
     }),
     {
       name: 'alifaain-app',
+      version: 2,
+      migrate: (persisted) => {
+        const state = (persisted ?? {}) as { selectedCountry?: string }
+        return {
+          selectedCountry: state.selectedCountry ?? 'SA',
+          language: 'ar' as const,
+        }
+      },
       partialize: (state) => ({
         selectedCountry: state.selectedCountry,
+        language: state.language,
       }),
     }
   )
