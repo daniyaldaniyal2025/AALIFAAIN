@@ -29,7 +29,7 @@
 next-env.d.ts
 
 # Environment variables (never commit secrets)
-.env
+#.env
 .env.*
 !.env.example
 

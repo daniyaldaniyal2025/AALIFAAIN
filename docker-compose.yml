@@ -1,0 +1,15 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment: 
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:?Set NEXTAUTH_SECRET in .env or the shell}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000} 
+    volumes:
+      - uploads:/app/public/uploads
+ 
+volumes:
+  mongodb-data:
+  uploads:

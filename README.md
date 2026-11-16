@@ -548,20 +548,19 @@ erDiagram
 
 ## Environment Variables
 
-Create a `.env` file in the project root:
+For local development, create a `.env` file in the project root:
 
 ```env
-# Required
-DATABASE_URL="file:./db/custom.db"
-
-# Recommended (change in production)
-NEXTAUTH_SECRET="change-me-to-a-long-random-string"
+MONGO_URI="mongodb://localhost:27017/aalifaain"
+NEXTAUTH_SECRET="replace-with-a-long-random-value"
+NEXTAUTH_URL="http://localhost:3000"
 ```
 
 | Variable | Required | Description | Default |
 |----------|----------|-------------|---------|
-| `DATABASE_URL` | Yes | Prisma SQLite connection string | — |
-| `NEXTAUTH_SECRET` | Recommended | Session token encoding + NextAuth secret | `alifaain-secret-key` (dev fallback) |
+| `MONGO_URI` | Yes | MongoDB connection string | — |
+| `NEXTAUTH_SECRET` | Yes for Compose | Session token encoding + NextAuth secret | `alifaain-secret-key` (development fallback) |
+| `NEXTAUTH_URL` | No | Public URL of the app | `http://localhost:3000` |
 | `NODE_ENV` | Auto | Set to `production` for secure cookies | Set by runtime |
 
 No payment gateway, SMTP, or cloud storage environment variables are needed — payments are simulated and uploads are stored locally.
@@ -614,19 +613,25 @@ npm run dev:realtime
 
 ## Deployment
 
-### Standalone Output
+### Docker Compose
 
-`next.config.ts` is configured with `output: "standalone"` for self-contained deployment. The build script copies static assets into the standalone output directory.
+Docker Compose runs the standalone Next.js app and MongoDB. MongoDB data and uploaded product images are stored in named volumes.
 
-### Production Checklist
+Set a strong session secret in the project-root `.env` file (or export it in your shell), then start the services:
 
-1. Set `DATABASE_URL` and `NEXTAUTH_SECRET` in environment
-2. Run `npm run setup` to initialize the database
-3. Run `npm run build`
-4. Start Next.js: `npm start` (requires Bun)
-5. Start realtime service: `cd mini-services/realtime-service && npm start`
-6. Configure Caddy (or equivalent reverse proxy) using the provided `Caddyfile`
-7. Visit the site — database auto-seeds on first load via `GET /api/seed`
+```bash
+# .env
+NEXTAUTH_SECRET=replace-with-a-long-random-value
+```
+
+```bash
+docker compose up --build -d
+docker compose logs -f app
+```
+
+Open `http://localhost:3000`. Stop the services with `docker compose down`; persisted data remains in the volumes. To delete the database and uploaded images too, run `docker compose down -v`.
+
+The Compose setup does not include the optional Socket.IO realtime service; standard catalog and checkout functionality works without it.
 
 ### Caddy Configuration
 
